@@ -859,11 +859,11 @@ if __name__ == '__main__':
     # 使用并发执行器进行批量计算
     from projects._03_factor_selection.utils.efficiency_engineering.concurrent_executor import run_concurrent_factors
     
-    snapshot_config_id = '20250825_091622_98ed2d08'
-    df = pd.read_csv(r'D:\lqs\codeAbout\py\Quantitative\quant_research_portfolio\projects\_03_factor_selection\factor_manager\selector\v3未经过残差化版本.csv')
+    snapshot_config_id = '20250906_045625_05e460ab'
+    df = pd.read_csv(r'D:\lqs\codeAbout\py\Quantitative\quant_research_portfolio\projects\_03_factor_selection\factor_manager\selector\o2o_v3.csv')
     factor_names = df['factor_name'].unique().tolist()
     
-    logger.info(f"📊 开始批量计算 {len(factor_names[6:])} 个因子的滚动IC")
+    logger.info(f"📊 开始批量计算 {len(factor_names)} 个因子的滚动IC")
     factor_names = ['lqs_orthogonal_v1']
     # # 并发执行 - 单因子模式，适合内存充足的情况
     # successful_results, failed_factors = run_concurrent_factors(
@@ -883,4 +883,4 @@ if __name__ == '__main__':
     #         logger.warning(f"  - {factor}: {error}")
     
     # 单个测试用法(保留原有方式)
-    run_cal_and_save_rolling_ic_by_snapshot_config_id('20250828_181420_f6baf27c', ['lqs_orthogonal_v1'])
+    run_cal_and_save_rolling_ic_by_snapshot_config_id('20250828_181420_f6baf27c', )

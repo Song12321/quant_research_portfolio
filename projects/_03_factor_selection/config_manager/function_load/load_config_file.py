@@ -160,15 +160,15 @@ trans_pram =  {
 }
 
 
-trans_pram =  {
-    'mode': 'massive_test',
-    'pools': {
-        **HS300_fast_profile
-    },
-    'period': temp_half_year,
-    'evaluation': EVAL_SETTING_FAST,  # <--- 【新增】
-    'desc': 'fast临时'
-}
+# trans_pram =  {
+#     'mode': 'massive_test',
+#     'pools': {
+#         **HS300_fast_profile
+#     },
+#     'period': temp_half_year,
+#     'evaluation': EVAL_SETTING_FAST,  # <--- 【新增】
+#     'desc': 'fast临时'
+# }
 #
 # trans_pram = {
 #     'mode': 'fast',

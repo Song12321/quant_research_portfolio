@@ -1250,7 +1250,7 @@ class FactorCalculator:
                 """
         print(f"    >  正在从 {source_column} 计算 {single_q_col_name}...")
 
-        financial_long_df = data_loader_func.copy(deep=True)
+        financial_long_df = data_loader_func()
 
         # 步骤一：【调用新工具】创建脚手架并合并，解决季度跳跃问题
         merged_df = self._create_scaffold_and_merge_quarterly_data(financial_long_df, 'end_date')

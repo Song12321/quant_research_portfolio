@@ -893,8 +893,8 @@ class DataManager:
             factor_config = self.get_factor_definition(name)
             if factor_config['cal_require_base_fields_from_daily'].iloc[0]:
                 base_fields = factor_config['cal_require_base_fields'].iloc[0]
-                result.update(base_fields)  # 用 update 合并列表到 set
-
+                if base_fields is not None and base_fields is not np.nan:
+                    result.update(base_fields)  # 用 update 合并列表到 set
         return result
 
     def get_cal_require_base_fields_for_composite(self, name):

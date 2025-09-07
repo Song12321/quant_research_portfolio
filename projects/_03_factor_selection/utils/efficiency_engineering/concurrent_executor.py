@@ -278,25 +278,25 @@ if __name__ == "__main__":
     import pandas as pd
     
     # 读取因子列表
-    df = pd.read_csv(r'/projects/_03_factor_selection/factor_manager/selector/v3未经过残差化版本.csv')
+    df = pd.read_csv(r'D:\lqs\codeAbout\py\Quantitative\quant_research_portfolio\projects\_03_factor_selection\factor_manager\selector\o2o_v3.csv')
     factor_names = df['factor_name'].unique().tolist()
     
-    snapshot_config_id = '20250825_091622_98ed2d08'
+    snapshot_config_id = '20250906_045625_05e460ab'
     
-    # 方式1: 单因子并发
-    logger.info("=== 单因子并发模式 ===")
-    successful, failed = run_concurrent_factors(
-        factor_names=factor_names[:6],  # 测试前10个因子
-        snapshot_config_id=snapshot_config_id,
-        max_workers=6,
-        execution_mode="single"
-    )
+    # # 方式1: 单因子并发
+    # logger.info("=== 单因子并发模式 ===")
+    # successful, failed = run_concurrent_factors(
+    #     factor_names=factor_names[:6],  # 测试前10个因子
+    #     snapshot_config_id=snapshot_config_id,
+    #     max_workers=6,
+    #     execution_mode="single"
+    # )
     
     # 方式2: 分组并发
-    # logger.info("=== 分组并发模式 ===")
-    # successful, failed = run_concurrent_factors(
-    #     factor_names=factor_names,
-    #     snapshot_config_id=snapshot_config_id,
-    #     max_workers=2,
-    #     execution_mode="chunked"
-    # )
+    logger.info("=== 分组并发模式 ===")
+    successful, failed = run_concurrent_factors(
+        factor_names=factor_names,
+        snapshot_config_id=snapshot_config_id,
+        max_workers=3,
+        execution_mode="chunked"
+    )
