@@ -278,9 +278,10 @@ if __name__ == "__main__":
     import pandas as pd
     
     # 读取因子列表
-    df = pd.read_csv(r'D:\lqs\codeAbout\py\Quantitative\quant_research_portfolio\projects\_03_factor_selection\factor_manager\selector\o2o_v3.csv')
-    factor_names = df['factor_name'].unique().tolist()
-    
+    # df = pd.read_csv(r'D:\lqs\codeAbout\py\Quantitative\quant_research_portfolio\projects\_03_factor_selection\factor_manager\selector\o2o_v3.csv')
+    # factor_names = df['factor_name'].unique().tolist()
+    factor_names = ['vwap_deviation_20d','roe_change_q','roa_ttm','turnover_rate',  'large_trade_ratio_10d','beta','revenue_growth_ttm']
+    #
     snapshot_config_id = '20250906_045625_05e460ab'
     
     # # 方式1: 单因子并发

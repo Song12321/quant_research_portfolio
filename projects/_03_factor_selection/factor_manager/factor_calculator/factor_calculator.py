@@ -1555,7 +1555,7 @@ class FactorCalculator:
         # 我们只需要提供：1.数据加载函数 2.源数据列名 3.具体的计算逻辑
         return self._create_general_quarterly_factor_engine(
             factor_name='roe_change_q',
-            data_loader_func=load_fina_indicator_df(),
+            data_loader_func=load_fina_indicator_df,
             source_column='q_roe',  # Tushare财务指标接口中的“单季度净资产收益率”
             calculation_logic_func=self._qoq_change_logic  # 使用下方定义的通用环比计算逻辑
         )

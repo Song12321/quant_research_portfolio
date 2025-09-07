@@ -121,36 +121,38 @@
 ##行业
 #- factor_name: 'sw_l1_momentum_21d'
 #  stock_pool_name: 'ZZ800'
-
+#
+#- factor_name: 'value_composite'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'turnover_rate'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'roa_ttm'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'roe_change_q'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'vwap_deviation_20d'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'large_trade_ratio_10d'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'beta'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'net_profit_growth_ttm'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'revenue_growth_ttm'
+#  stock_pool_name: 'ZZ800'
 
 
 #--------------------------------------------------------------------------------------- 模板以上
 
 #- factor_name: 'vwap_deviation_20d'
 #  stock_pool_name: 'ZZ800'
-#todo
+#todo 有问题
+
+#  'large_trade_ratio_10d',
 #
 
-- factor_name: 'value_composite'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'turnover_rate'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'roa_ttm'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'roe_change_q'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'vwap_deviation_20d'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'large_trade_ratio_10d'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'beta'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'net_profit_growth_ttm'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'revenue_growth_ttm'
-  stock_pool_name: 'ZZ800'
 
 #- factor_name: 'value_composite'
 #  stock_pool_name: 'ZZ800'
@@ -159,9 +161,9 @@
 #  'turnover_rate',
 #  'roa_ttm',
 #
-#   'roe_change_q',
+
 #  , 'vwap_deviation_20d',
-#  'large_trade_ratio_10d',
+
 #  'revenue_growth_ttm',
 #  'beta',
 #  'net_profit_growth_ttm'

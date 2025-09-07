@@ -101,6 +101,7 @@ class FactorRollingICStats:
     avg_ir_ir_with_sign: float
     avg_ic_abs: float              # 平均IC绝对值
     avg_ir_abs: float              # 平均IR绝对值
+    best_period_ic_ir:float  #ir所在 表现最佳的周期val
     nw_t_stat_series_mean:float
     avg_stability: float           # 平均稳定性
     avg_ic_volatility: float       # 平均IC波动率
@@ -330,6 +331,7 @@ class RollingICFactorSelector:
         # 得到最核心的两个综合指标
         avg_ic_with_sign = float(np.average(ic_means_with_sign, weights=weights))
         avg_ic_ir_with_sign = float(np.average(ic_irs_with_sign, weights=weights))
+        best_period_ic_ir = ic_irs_with_sign.max()
 
         # 3. 从综合指标派生出用于筛选的绝对值指标
         avg_ic_abs = abs(avg_ic_with_sign)
