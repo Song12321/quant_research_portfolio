@@ -165,7 +165,7 @@ trans_pram =  {
     'pools': {
         **HS300_fast_profile
     },
-    'period': temp_half_year,
+    'period': period_one_year,
     'evaluation': EVAL_SETTING_FAST,  # <--- 【新增】
     'desc': 'fast临时'
 }

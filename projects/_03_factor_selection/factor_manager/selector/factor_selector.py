@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from typing import Union, Dict, Any, List
 
+import numpy as np
 import pandas as pd
 from jupyterlab.pytest_plugin import workspaces_dir
 
@@ -10,6 +11,7 @@ from projects._03_factor_selection.utils.factor_scoring_v33_final import calcula
 from quant_lib import logger
 
 from projects._03_factor_selection.visualization_manager import VisualizationManager
+from typing import Union, Dict, Tuple
 
 #
 # def calculate_factor_score_ultimate(summary_row: Union[pd.Series, dict]) -> pd.Series:
@@ -227,6 +229,24 @@ class FactorSelectorV2:
 
         return row
 
+    def build_factor_icir_data(self, target_stock_pool: str,
+                                   run_version: str = 'latest') :
+        base_path = workspaces_result_dir / target_stock_pool
+        ret = {}
+        for factor_dir in base_path.iterdir():
+            if not factor_dir.is_dir(): continue
+            ret_icir_dict = {}
+            factor_name = factor_dir.name
+            for period in self.ALL_PERIODS:
+                # 1. 为当前因子和周期构建一个完整的指标行
+                current_period_row = self._build_single_period_row(factor_dir, period, run_version)
+                if current_period_row == None:
+                    continue
+                ic_ir = current_period_row['ic_ir_processed_o2o']
+                ret_icir_dict[period] = ic_ir
+            if  len (ret_icir_dict)!=0:
+                ret[factor_name] = ret_icir_dict
+        return ret
     def build_champion_leaderboard(self, results_path: str, target_stock_pool: str,
                                    run_version: str = 'latest') -> pd.DataFrame:
         """
@@ -369,21 +389,272 @@ class FactorSelectorV2:
 
         return pd.DataFrame(all_returns)
 
+# 维持配置不变，因为我们会在代码中处理方向
+PHASE1_SCREENING_CONFIG = {
+    'min_full_sample_icir_abs': 0.4,   # 修正：我们现在关心ICIR的绝对值
+    'min_full_sample_ic_mean_abs': 0.02, # 修正：IC均值的绝对值也应达标
+    'min_newey_west_t_stat_abs': 1.96, # T值的绝对值要显著 (95%置信度)
+    'min_win_rate': 0.55               # 胜率依然重要
+}
 
-if __name__ == '__main__':
-    # ==============================================================================
-    #                      主分析流程入口
-    # ==============================================================================
+
+def screen_factor_phase1(
+        summary_row: Union[pd.Series, dict],
+        config: Dict = None
+) -> Tuple[bool, Dict]:
+    """
+    【V2版：因子准入筛选函数 - 方向中性】
+    此版本基于ICIR的【绝对值】进行筛选，能同时识别正向和反向的有效因子。
+
+    Returns:
+        Tuple[bool, Dict]:
+        - is_passed (bool): 是否通过筛选。
+        - screening_results (Dict): 包含核心指标和【因子方向】的字典。
+    """
+    if config is None:
+        config = PHASE1_SCREENING_CONFIG
+
+    ic_mean = summary_row.get('full_sample_ic_mean', 0)
+    ic_ir = summary_row.get('full_sample_icir', 0)
+    nw_t_stat = summary_row.get('full_sample_nw_t_stat', 0)
+    win_rate = summary_row.get('full_sample_win_rate', 0)
+
+    # --- 核心修正 1：判断因子方向 ---
+    # np.sign()会返回1, -1,或0。如果ic_mean接近0，我们默认为正向1。
+    factor_direction = np.sign(ic_mean) if abs(ic_mean) > 1e-6 else 1
+
+    # --- 核心修正 2：基于绝对值进行筛选 ---
+    ic_mean_abs = abs(ic_mean)
+    ic_ir_abs = abs(ic_ir)
+    nw_t_stat_abs = abs(nw_t_stat)
+
+    # 胜率需要根据方向重新计算：(IC * 方向) > 0 的比例
+    # 假设 summary_row 里的 win_rate 是基于ic_mean方向算的，这里直接用
+
+    screening_results = {
+        'IC Mean': ic_mean,
+        'ICIR': ic_ir,
+        'NW T-stat': nw_t_stat,
+        'Win Rate': win_rate,
+        'Factor Direction': int(factor_direction)  # 新增：输出因子方向
+    }
+
+    if ic_ir_abs < config['min_full_sample_icir_abs']:
+        screening_results['failure_reason'] = f"|ICIR| < {config['min_full_sample_icir_abs']}"
+        return False, screening_results
+
+    if ic_mean_abs < config['min_full_sample_ic_mean_abs']:
+        screening_results['failure_reason'] = f"|IC Mean| < {config['min_full_sample_ic_mean_abs']}"
+        return False, screening_results
+
+    if nw_t_stat_abs < config['min_newey_west_t_stat_abs']:
+        screening_results['failure_reason'] = f"|NW T-stat| < {config['min_newey_west_t_stat_abs']}"
+        return False, screening_results
+
+    if win_rate < config['min_win_rate']:
+        screening_results['failure_reason'] = f"Win Rate < {config['min_win_rate']}"
+        return False, screening_results
+
+    return True, screening_results
+
+
+def _generate_factor_profile_v3(
+        factor_name: str,
+        factor_stats: Dict[str, Dict]
+) -> Dict:
+    """
+    【V3 最终版辅助函数】为一个通过筛选的因子生成深度画像和诊断结论。
+
+    核心改进：
+    1. 修正了ICIR指标的提取方式，使其更健壮。
+    2. 修正了衰减率的计算，使其方向中性（基于ICIR绝对值）。
+    3. 引入了对40d周期的判断，使衰减逻辑更严密。
+    """
+    profile = {
+        "因子名称": factor_name,
+        "决策指标 (21d)": {},
+        "辅助诊断": {},
+        "最终画像结论": "有待评估"
+    }
+
+    # --- 1. 提取所有周期的关键指标 (更健壮的方式) ---
+    icir_dict = {
+        p: factor_stats.get(f'{p}d', {})
+        for p in [1, 5, 10, 21, 40, 60, 120]
+    }
+
+    icir_21d = icir_dict[21]
+    profile["决策指标 (21d)"]["21d 全样本ICIR"] = f"{icir_21d:.4f} (✅ 决策通过)"
+
+    # --- 2. 诊断短期效应 (Short-term Effect) ---
+    icir_1d = icir_dict[1]
+    icir_5d = icir_dict[5]
+
+    short_term_diagnosis_text = f"ICIR_1d={icir_1d:.2f}, ICIR_5d={icir_5d:.2f}"
+    if icir_1d < -0.1 and icir_5d < 0:
+        short_term_conclusion = " (诊断：存在健康的短期反转效应，非追高型因子)"
+    elif icir_1d > 0.1 and icir_5d > 0.1:
+        short_term_conclusion = " (⚠️ 警告：存在较强短期动量，可能被市场情绪污染)"
+    else:
+        short_term_conclusion = " (诊断：短期效应不明显)"
+    profile["辅助诊断"]["短期效应 (1d, 5d)"] = short_term_diagnosis_text + short_term_conclusion
+
+    # --- 3. 【修正】诊断信号持久性 (IC Decay) ---
+    # 使用ICIR的绝对值来衡量预测能力的强度衰减，避免正负号干扰
+    abs_icir_21d = abs(icir_21d)
+    benchmark_icir = abs_icir_21d if abs_icir_21d > 1e-6 else 0.01
+
+    decay_ratio_40d = abs(icir_dict[40]) / benchmark_icir
+    decay_ratio_60d = abs(icir_dict[60]) / benchmark_icir
+    decay_ratio_120d = abs(icir_dict[120]) / benchmark_icir
+
+    persistence_diagnosis_text = (f"ICIR_40d={icir_dict[40]:.2f}, "
+                                  f"ICIR_60d={icir_dict[60]:.2f}, "
+                                  f"ICIR_120d={icir_dict[120]:.2f}")
+
+    # 建立一个更严密的、层层递进的判断逻辑
+    if decay_ratio_120d > 0.6:
+        persistence_conclusion = " (诊断：信号非常持久，衰减极慢，顶级长效因子)"
+    elif decay_ratio_60d < 0.3:
+        persistence_conclusion = " (诊断：信号在中期(60d)衰减严重，不适合长周期持有)"
+    elif decay_ratio_40d < 0.5:  # 引入对40d的判断
+        persistence_conclusion = " (诊断：信号在初期(40d)衰减较快，偏向中短周期)"
+    else:
+        persistence_conclusion = " (诊断：信号正常衰减，符合中长期因子特征)"
+    profile["辅助诊断"]["信号持久性 (40d, 60d, 120d)"] = persistence_diagnosis_text + persistence_conclusion
+
+    # --- 4. 【修正】形成最终结论 ---
+    final_conclusion = "表现合格的中长期因子，可作为备选纳入合成池。"  # 默认结论
+
+    if "顶级长效因子" in persistence_conclusion and "健康" in short_term_conclusion:
+        final_conclusion = "顶级长效因子。信号持久且能规避短期噪音。强烈建议纳入最终的合成池作为核心基石。"
+    elif "衰减严重" in persistence_conclusion or "衰减较快" in persistence_conclusion:
+        final_conclusion = "中短周期因子。虽然通过了21d筛选，但其长期有效性存疑，在月度调仓策略中需谨慎使用或低配。"
+    elif "警告" in short_term_conclusion:
+        final_conclusion = "可能被动量污染的因子。其Alpha来源不纯粹，稳定性风险较高，建议进一步做剥离分析或直接放弃。"
+
+    profile["最终画像结论"] = final_conclusion
+
+    return profile
+
+
+def profile_elite_factors(
+        all_factors_summary: Dict[str, Dict],
+        decision_period: int = 21,
+        icir_threshold: float = 0.4
+) -> Dict[str, Dict]:
+    """
+    【V2修正版主函数】执行两步走的因子筛选和画像流程。
+    """
+    print(f"--- 开始因子筛选与画像 (V2版-方向中性) | 决策周期: {decision_period}d | |ICIR|门槛: {icir_threshold} ---")
+    factor_profiles = {}
+
+    for factor_name, factor_stats in all_factors_summary.items():
+        print(f"\n正在评估因子: {factor_name}...")
+
+        decision_key = f'{decision_period}d'
+        icir_for_decision = factor_stats.get(decision_key)
+
+        if not icir_for_decision:
+            print(f"  > ❌ 筛选失败: 缺少决策周期 {decision_key} 的统计数据。")
+            continue
+
+
+        if abs(icir_for_decision) >= icir_threshold:
+            print(f"  > ✅ 通过硬性筛选 (|ICIR|={abs(icir_for_decision):.4f})")
+
+            profile = _generate_factor_profile_v3(factor_name, factor_stats)  # 调用最新的V3版画像函数
+            factor_profiles[factor_name] = profile
+        else:
+            print(f"  > ❌ 筛选失败: |{decision_key} ICIR| ({abs(icir_for_decision):.4f}) 未达到门槛 {icir_threshold}。")
+
+    print("\n" + "=" * 50)
+    print(f"筛选完成! 共 {len(factor_profiles)} 个因子进入精英池。")
+    print("=" * 50)
+    return factor_profiles
+
+
+#
+# def profile_elite_factors(
+#         all_factors_summary: Dict[str, Dict],
+#         decision_period: int = 21,
+#         icir_threshold: float = 0.4
+# ) -> Dict[str, Dict]:
+#     """
+#     【V2修正版主函数】执行两步走的因子筛选和画像流程。
+#
+#     核心修正：
+#     1. 基于ICIR的【绝对值】进行硬性门槛筛选，以识别正向和反向因子。
+#     2. 确保从嵌套字典中正确提取ic_ir值。
+#     """
+#     print(f"--- 开始因子筛选与画像 (V2版-方向中性) | 决策周期: {decision_period}d | |ICIR|门槛: {icir_threshold} ---")
+#     factor_profiles = {}
+#
+#     for factor_name, factor_stats in all_factors_summary.items():
+#         print(f"\n正在评估因子: {factor_name}...")
+#
+#         # --- 第一步：硬性门槛筛选 ---
+#         decision_key = f'{decision_period}d'
+#         icir_for_decision = factor_stats.get(decision_key)
+#
+#         if not icir_for_decision:
+#             print(f"  > ❌ 筛选失败: 缺少决策周期 {decision_key} 的统计数据。")
+#             continue
+#
+#
+#         # --- 【核心逻辑修正】 ---
+#         # 基于ICIR的绝对值进行判断
+#         if abs(icir_for_decision) >= icir_threshold:
+#             print(f"  > ✅ 通过硬性筛选 (|ICIR|={abs(icir_for_decision):.4f})")
+#
+#             # --- 第二步：对通过筛选的因子，进行“深度画像” ---
+#             # _generate_factor_profile_v2 函数能正确处理正负ICIR并给出画像
+#             profile = _generate_factor_profile_v2(factor_name, factor_stats)
+#             factor_profiles[factor_name] = profile
+#         else:
+#             print(f"  > ❌ 筛选失败: |{decision_key} ICIR| ({abs(icir_for_decision):.4f}) 未达到门槛 {icir_threshold}。")
+#
+#     print("\n" + "=" * 50)
+#     print(f"筛选完成! 共 {len(factor_profiles)} 个因子进入精英池。")
+#     print("=" * 50)
+#     return factor_profiles
+
+def get_passed_factors(
+        summary_row: Union[pd.Series, dict]=None,
+        config: Dict = None
+):
+    # --- 1. 准备你的全量因子测试结果 (示例数据) ---
+    # 这部分数据来自于你之前的单因子测试函数
+
     selector = FactorSelectorV2()
 
-    # 【决策】在这里做出你的战略决策，选择你的主战场
-    TARGET_UNIVERSE = INDEX_CODES['HS300']  # 以中证300为主战场
-    TARGET_UNIVERSE = INDEX_CODES['ZZ500']  # 以中证1000为主战场
-    TARGET_UNIVERSE = INDEX_CODES['ZZ800']  # 以中证1000为主战场
+    all_factors_summary_data = selector.build_factor_icir_data(TARGET_UNIVERSE)
 
-    selector.run_factor_analysis(
-        TARGET_STOCK_POOL=TARGET_UNIVERSE,
-        top_n_final=400,
-        correlation_threshold=0.0,
-        run_version='latest'
+    # --- 2. 执行筛选与画像 ---
+    elite_factor_reports = profile_elite_factors(
+        all_factors_summary=all_factors_summary_data,
+        decision_period=21,
+        icir_threshold=0.4
     )
+
+    # --- 3. 查看精英因子的深度画像报告 ---
+    import json
+    for factor_name, report in elite_factor_reports.items():
+        print(f"\n----- {factor_name} 精英因子报告 -----")
+        # 使用json美化输出
+        print(json.dumps(report, indent=4, ensure_ascii=False))
+if __name__ == '__main__':
+
+    #
+    #
+    TARGET_UNIVERSE = INDEX_CODES['HS300']  # 以中证300为主战场
+    # TARGET_UNIVERSE = INDEX_CODES['ZZ500']  # 以中证1000为主战场
+    # TARGET_UNIVERSE = INDEX_CODES['ZZ800']  # 以中证1000为主战场
+    #
+    # selector.run_factor_analysis(
+    #     TARGET_STOCK_POOL=TARGET_UNIVERSE,
+    #     top_n_final=400,
+    #     correlation_threshold=0.0,
+    #     run_version='latest'
+    # )
+    get_passed_factors()

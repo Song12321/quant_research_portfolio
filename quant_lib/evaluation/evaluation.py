@@ -214,9 +214,7 @@ def calculate_ic(
         min_stocks: int = 20
 ) -> Tuple[Dict[str, Series], Dict[str, pd.DataFrame]]:
     """
-    【生产级版本】向量化计算因子IC值及相关统计指标。
-    此版本逻辑严密，接口清晰，返回纯粹的IC序列和独立的统计数据。
-
+    向量化计算因子IC值及相关统计指标。
     Args:
         factor_df: 因子值DataFrame
         forward_returns: 未来收益率DataFrame
@@ -264,7 +262,18 @@ def calculate_ic(
         ).rename("IC")  # 给Series命名是一个好习惯
 
         # --- 4. 计算统计指标 (只在有效IC序列上计算) ---
-        ic_series_cleaned = ic_series.dropna()
+        ic_series = ic_series.dropna()   # 此时的 ic_series 是每日滚动的、有自相关的序列
+
+        # 根据收益周期 period，确定采样间隔
+        # 我们每隔 period 天，才取一个IC值，以保证两次观测之间没有重叠
+        non_overlapping_dates = get_non_overlapping_dates(period, ic_series.index.sort_values())
+
+        # 使用非重叠的日期子集，得到一个干净的、无偏的IC序列
+        ic_series_non_overlapping = ic_series.loc[non_overlapping_dates]
+
+        # --- 5. 在【干净的】IC序列上计算统计指标 ---
+        ic_series_cleaned = ic_series_non_overlapping.dropna()
+
         if len(ic_series_cleaned) < 2:  # t检验至少需要2个样本
             raise ValueError(f"有效IC值数量过少({len(ic_series_cleaned)})，无法计算统计指标。")
 
@@ -343,88 +352,84 @@ def calculate_ic_decay(factor_df: pd.DataFrame,
 
 
 # ok
-def quantile_stats_result(results: Dict[int, pd.DataFrame], n_quantiles: int) -> Tuple[
-    Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]:
-    """
-   【V2 升级版】计算并汇总分层回测的关键性能指标。
-   本版本使用 Spearman 秩相关系数来衡量单调性，提供一个连续的评分而不是二元的True/False。
-   """
 
+def quantile_stats_result(
+        results: Dict[int, pd.DataFrame],
+        n_quantiles: int
+) -> Tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]:
+    """
+   【修正版】计算并汇总分层回测的关键性能指标。
+   此版本通过对每日收益序列进行“非重叠采样”，确保所有统计指标都在统计学上无偏和可靠。
+   """
     quantile_stats_periods_dict = {}
     quantile_returns_periods_dict = {}
 
-    for period, result in results.items():
-        if result.empty:
+    for period, daily_result in results.items():
+        if daily_result.empty:
             continue
 
-        mean_returns = result.mean()
-        tmb_series = result['TopMinusBottom'].dropna()
+        # --- 核心修正 1：创建非重叠的收益序列 ---
+        # daily_result 是每日调仓的模拟收益，其收益计算周期为 period 天，因此存在重叠
+        # 我们需要以 period 为步长进行采样，得到一个干净、无偏的独立样本序列
 
-        if tmb_series.empty:
+        non_overlapping_dates = get_non_overlapping_dates(period, daily_result.index.sort_values())
+        # clean_result 是我们用于所有统计计算的【干净】DataFrame
+        clean_result = daily_result.loc[non_overlapping_dates]
+        clean_tmb_series = clean_result['TopMinusBottom'].dropna()
+
+        if clean_tmb_series.empty or len(clean_tmb_series) < 2:
             continue
 
-        # --- 核心计算 ---
-        tmb_mean_period_return = tmb_series.mean()
-        tmb_std_period_return = tmb_series.std()
+        # --- 核心修正 2：在【干净的非重叠序列】上计算所有统计指标 ---
 
-        #  计算年化收益率  假设数据的基础频率是每日
-        tmb_annual_return = (tmb_mean_period_return / period) * 252 if period > 0 else 0
+        # 这是每个非重叠周期的平均收益 (例如，每 20 天的平均收益)
+        tmb_mean_period_return = clean_tmb_series.mean()
+        tmb_std_period_return = clean_tmb_series.std()
 
-        # 修正夏普比率以适应不同持有期 夏普比率的年化因子是 sqrt(252 / period)
-        tmb_sharpe = (tmb_mean_period_return / tmb_std_period_return) * np.sqrt(
-            252 / period) if tmb_std_period_return > 0 and period > 0 else 0
-        tmb_win_rate = (tmb_series > 0).mean()
-        max_drawdown, mdd_start, mdd_end = calculate_max_drawdown_robust(tmb_series)
+        # 正确的年化收益率计算 (基于复利)
+        # (1 + 周期平均收益) ^ (每年周期数) - 1
+        periods_per_year = 252 / period if period > 0 else 0
+        tmb_annual_return = (1 + tmb_mean_period_return) ** periods_per_year - 1 if periods_per_year > 0 else 0
 
-        # --- 【单调性检验 ---
+        # 正确的夏普比率计算
+        # (周期平均收益 / 周期标准差) * sqrt(每年周期数)
+        tmb_sharpe = (tmb_mean_period_return / tmb_std_period_return) * np.sqrt(periods_per_year) \
+            if tmb_std_period_return > 0 and periods_per_year > 0 else 0
+
+        tmb_win_rate = (clean_tmb_series > 0).mean()
+
+        # 最大回撤也必须在干净的序列上计算累计净值
+        max_drawdown, mdd_start, mdd_end = calculate_max_drawdown_robust(clean_tmb_series)
+
+        # --- 单调性检验（这部分逻辑不变，但在干净的数据上计算更可靠） ---
+        mean_returns = clean_result.mean()  # 使用干净结果的均值
         quantile_means = [mean_returns.get(f'Q{i + 1}', np.nan) for i in range(n_quantiles)]
-        monotonicity_spearman = np.nan  # 默认为NaN
+        monotonicity_spearman = np.nan
 
-        # 只有在所有组的平均收益都有效时才计算
         if not any(np.isnan(q) for q in quantile_means):
-            # 计算组别序号 [1, 2, 3, 4, 5] 与 组别平均收益 的等级相关性
-            # spearmanr 返回 (相关系数, p值)，我们只需要相关系数
-            monotonicity_spearman, p_value = spearmanr(np.arange(1, n_quantiles + 1), quantile_means)
-
-            # 【新增】异常单调性检测
-            logger.warning(f"单调性: {monotonicity_spearman:.6f} (p={p_value:.6f})")
-            if abs(monotonicity_spearman) >= 0.9:
-                logger.warning(f"⚠️  检测到异常单调性: {monotonicity_spearman:.6f} (p={p_value:.6f})")
-                logger.warning(f"   分位数收益: {[f'{q:.6f}' for q in quantile_means]} 如果 分位数收益的方差极小，导致微小差异被放大 所以总单调性很大，很正常！")
-
-                # 检查是否所有收益都相同
-                unique_returns = len(set(quantile_means))
-                if unique_returns <= 2:
-                    logger.error(f"❌ 严重问题：只有{unique_returns}个不同的分位数收益！")
-
-                # 检查收益差异是否过大
-                return_range = max(quantile_means) - min(quantile_means)
-                if return_range > 0.05:  # 5%
-                    logger.warning(f"   收益差异过大: {return_range:.4f}")
-
-            elif abs(monotonicity_spearman) > 0.8:
-                logger.info(f"✅ 强单调性: {monotonicity_spearman:.3f} - 这可能是高质量因子的表现")
+            #如果 分位数收益的方差极小，导致微小差异被放大 所以总单调性很大，很正常
+            monotonicity_spearman, _ = spearmanr(np.arange(1, n_quantiles + 1), quantile_means)
 
         # --- 存储结果 ---
-        # 'period' 变量用于创建描述性的键，如 '5d'
-        quantile_returns_periods_dict[f'{period}d'] = result
+        # 保留原始的每日收益数据，用于画图
+        quantile_returns_periods_dict[f'{period}d'] = daily_result
+        # 统计数据全部基于干净的、非重叠的序列
         quantile_stats_periods_dict[f'{period}d'] = {
-            # 'returns_data': result,
             'mean_returns': mean_returns,
-            'tmb_mean_period_return': tmb_mean_period_return,  # 特定周期的平均收益 (例如，5日平均收益)
-            'tmb_annual_return': tmb_annual_return,  # 年化后的多空组合收益率
-            'tmb_sharpe': tmb_sharpe,  # * 周期调整后的夏普比率
+            'tmb_mean_period_return': tmb_mean_period_return, # 特定周期的平均收益 (例如，5日平均收益)
+            'tmb_annual_return': tmb_annual_return,# 年化后的多空组合收益率
+            'tmb_sharpe': tmb_sharpe, # * 周期调整后的夏普比率
             'tmb_win_rate': tmb_win_rate,
             'tmb_max_drawdown': max_drawdown,
             'mdd_start_date': mdd_start,  # 最大回撤开始日期
             'mdd_end_date': mdd_end,  # 最大回撤结束日期
             'quantile_means': quantile_means,
-            # 【新增指标】: 用连续的Spearman相关系数代替二元的True/False
-            'monotonicity_spearman': monotonicity_spearman
+            'monotonicity_spearman': monotonicity_spearman,
+            # 新增一个指标，告诉你统计是基于多少个独立样本
+            'non_overlapping_samples': len(clean_tmb_series)
         }
 
     return quantile_returns_periods_dict, quantile_stats_periods_dict
-
 
 def calculate_quantile_returns(
         factor_df: pd.DataFrame,
@@ -525,32 +530,32 @@ def calculate_quantile_returns(
         # 8. 存储结果
         results[period] = quantile_returns_wide.sort_index(axis=1)
     return  results
-
-def calculate_turnover(positions_df: pd.DataFrame) -> pd.Series:
-    """
-    计算换手率
-
-    Args:
-        positions_df: 持仓DataFrame，index为日期，columns为股票代码
-
-    Returns:
-        换手率序列
-    """
-    logger.info("计算换手率...")
-
-    turnover = pd.Series(index=positions_df.index[1:])
-
-    for i in range(1, len(positions_df)):
-        prev_pos = positions_df.iloc[i - 1]
-        curr_pos = positions_df.iloc[i]
-
-        # 计算持仓变化
-        pos_change = abs(curr_pos - prev_pos).sum() / 2
-
-        turnover.iloc[i - 1] = pos_change
-
-    logger.info(f"换手率计算完成: 平均换手率={turnover.mean():.4f}")
-    return turnover
+#
+# def calculate_turnover(positions_df: pd.DataFrame) -> pd.Series:
+#     """
+#     计算换手率
+#
+#     Args:
+#         positions_df: 持仓DataFrame，index为日期，columns为股票代码
+#
+#     Returns:
+#         换手率序列
+#     """
+#     logger.info("计算换手率...")
+#
+#     turnover = pd.Series(index=positions_df.index[1:])
+#
+#     for i in range(1, len(positions_df)):
+#         prev_pos = positions_df.iloc[i - 1]
+#         curr_pos = positions_df.iloc[i]
+#
+#         # 计算持仓变化
+#         pos_change = abs(curr_pos - prev_pos).sum() / 2
+#
+#         turnover.iloc[i - 1] = pos_change
+#
+#     logger.info(f"换手率计算完成: 平均换手率={turnover.mean():.4f}")
+#     return turnover
 
 
 # ok
@@ -560,7 +565,7 @@ def calculate_turnover(
         forward_periods: List[int] = [1, 5, 20]
 ) -> Dict[str, pd.Series]:
     """
-    【新增】向量化计算因子在不同持有期下的换手率。
+    向量化计算因子在不同持有期下的换手率。
 
     Args:
         factor_df (pd.DataFrame): 因子值DataFrame (index=date, columns=stock)。
@@ -594,11 +599,22 @@ def calculate_turnover(
         valid_counts = factor_df.notna().sum(axis=1)
         daily_turnover = turnover_matrix.sum(axis=1) / valid_counts.where(valid_counts > 0, np.nan)
 
-        turnover_periods_dict[f'{period}d'] = daily_turnover.dropna().rename('turnover')
+        # --- 核心修正：对每日滚动换手率进行非重叠采样 ---
+        non_overlapping_dates = get_non_overlapping_dates(period, daily_turnover.dropna().index.sort_values())
+        # turnover_series 现在是干净的、与调仓周期匹配的换手率序列
+        turnover_series = daily_turnover.loc[non_overlapping_dates]
 
+        turnover_periods_dict[f'{period}d'] = turnover_series.rename('turnover')#每次调仓时的平均换手率
     return turnover_periods_dict
 
-
+def get_non_overlapping_dates(period, all_dates):
+    non_overlapping_dates = []
+    i = 0
+    while i < len(all_dates):
+        non_overlapping_dates.append(all_dates[i])
+        i += period  # 以 period 为步长进行采样
+    return non_overlapping_dates
+#ok
 def calculate_max_drawdown_robust(
         returns: pd.Series
 ) -> Tuple[float, Optional[pd.Timestamp], Optional[pd.Timestamp]]:
