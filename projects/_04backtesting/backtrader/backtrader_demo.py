@@ -36,7 +36,9 @@ def load_data_for_backtrader_demo(factor_names):
         stock_pool_index = '000906'
         start_date = '2019-03-28'
         end_date = '2023-12-31'
-        
+        # start_date = '2023-01-01'
+        # end_date = '2023-12-31'
+
         logger.info(f"数据配置: 股票池={stock_pool_index}, 时间范围={start_date}~{end_date}")
         
         # 加载价格数据
@@ -82,19 +84,20 @@ def demo_basic_backtrader():
     # 1. 加载数据
     zheng = ['cfp_ratio','amihud_liquidity','earnings_stability','value_composite']
     reverse_ = ['turnover_rate_monthly_mean','volatility_120d','volatility_90d' ,'volatility_40d', 'turnover_rate_90d_mean', 'ln_turnover_value_90d']
+    reverse_ = ['turnover_rate_monthly_mean']
     # price_dfs, factor_dict = load_data_for_backtrader_demo( ['volatility_40d'])
     price_dfs, factor_dict = load_data_for_backtrader_demo( reverse_)
 
     # 2. 使用原有配置（完全兼容）
     config = BacktestConfig(
-        top_quantile=0.15,           # 做多前30%
-        rebalancing_freq='40d',        # 月度调仓
+        top_quantile=0.10,           # 做多前30%
+        rebalancing_freq='W',        # 月度调仓
         commission_rate=0.0001,      # 万1佣金
         slippage_rate=0.001,         # 千1滑点
         stamp_duty=0.0005,           # 千0.5印花税
         initial_cash=10000000,         # 初始资金
         max_positions=21,           # 最多持
-        max_holding_days=80
+        max_holding_days=40
     )
     # 3. 一键运行Backtrader回测
     results = one_click_migration(price_dfs, factor_dict, config)

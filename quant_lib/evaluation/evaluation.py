@@ -75,40 +75,40 @@ def calculate_forward_returns_tradable_o2o(period: int,
     )
 
     return forward_returns_winsorized
-#ok
-# C2C 仅用于学术对比或历史统计，不适合实盘回测
-def calculate_forward_returns_c2c(period: int,
-                                  close_df: pd.DataFrame,
-                                  winsorize_limits: list = [0.025, 0.025]) -> pd.DataFrame:
-    """
-    【生产级 C2C】计算从 T日收盘价 到 T+period日收盘价 的未来收益率。
-    包含了生存偏差过滤和截面去极值处理。
-    """
-    prices = close_df.copy(deep=True)
-
-    # 1. 定义起点和终点价格 (逻辑核心)
-    start_price = prices
-    end_price = prices.shift(-period)
-
-    # 2. 创建“未来存续”掩码 (处理退市等情况)
-    # 确保在持有期的起点和终点，股票价格都存在
-    survived_mask = start_price.notna() & end_price.notna()
-
-    # 3. 计算原始收益率
-    forward_returns_raw = (end_price / start_price) - 1
-
-    # 4. 应用掩码，过滤掉无效收益
-    forward_returns_masked = forward_returns_raw.where(survived_mask)
-
-    # 5. 在截面 (axis=1) 上对每日的收益率进行去极值处理
-    # 这是至关重要的一步，可以大幅提高回测结果的稳定性
-    forward_returns_winsorized = forward_returns_masked.apply(
-        safe_winsorize_series,
-        axis=1,
-        limits=winsorize_limits
-    )
-
-    return forward_returns_winsorized
+# #ok
+# # C2C 仅用于学术对比或历史统计，不适合实盘回测
+# def calculate_forward_returns_c2c(period: int,
+#                                   close_df: pd.DataFrame,
+#                                   winsorize_limits: list = [0.025, 0.025]) -> pd.DataFrame:
+#     """
+#     【生产级 C2C】计算从 T日收盘价 到 T+period日收盘价 的未来收益率。
+#     包含了生存偏差过滤和截面去极值处理。
+#     """
+#     prices = close_df.copy(deep=True)
+#
+#     # 1. 定义起点和终点价格 (逻辑核心)
+#     start_price = prices
+#     end_price = prices.shift(-period)
+#
+#     # 2. 创建“未来存续”掩码 (处理退市等情况)
+#     # 确保在持有期的起点和终点，股票价格都存在
+#     survived_mask = start_price.notna() & end_price.notna()
+#
+#     # 3. 计算原始收益率
+#     forward_returns_raw = (end_price / start_price) - 1
+#
+#     # 4. 应用掩码，过滤掉无效收益
+#     forward_returns_masked = forward_returns_raw.where(survived_mask)
+#
+#     # 5. 在截面 (axis=1) 上对每日的收益率进行去极值处理
+#     # 这是至关重要的一步，可以大幅提高回测结果的稳定性
+#     forward_returns_winsorized = forward_returns_masked.apply(
+#         safe_winsorize_series,
+#         axis=1,
+#         limits=winsorize_limits
+#     )
+#
+#     return forward_returns_winsorized
 #最新注释： 无法贴近实际，因为往往很难做到第二天一大早就能顺利买入
 
 # 我觉得这个更能说明因子的潜力，在运动过程中（真的过程（交易过程）中， 来看因子 跟此段收益率的协同关系
@@ -210,7 +210,7 @@ def calculate_ic(
         price_df: pd.DataFrame,
         forward_periods: List[int] = [1, 5, 20],
         method: str = 'spearman',
-        returns_calculator: Callable[[int, pd.DataFrame], pd.DataFrame] = calculate_forward_returns_c2c,
+        returns_calculator: Callable[[int, pd.DataFrame], pd.DataFrame] = calculate_forward_returns_tradable_o2o,
         min_stocks: int = 20
 ) -> Tuple[Dict[str, Series], Dict[str, pd.DataFrame]]:
     """

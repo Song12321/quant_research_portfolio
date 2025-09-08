@@ -39,7 +39,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from quant_lib.evaluation.evaluation import (
     calculate_ic,
     calculate_quantile_returns, fama_macbeth, calculate_turnover,
-    calculate_forward_returns_c2c, quantile_stats_result,
+     quantile_stats_result,
     calculate_quantile_daily_returns, calculate_forward_returns_tradable_o2o
 
 )
@@ -1489,13 +1489,11 @@ class FactorAnalyzer:
         open_df = self.factor_manager.get_prepare_aligned_factor_for_analysis(factor_request='open_hfq', stock_pool_index_name=stock_pool_name, for_test=True)
 
         # 准备收益率计算器（价格数据不需要shift，因为我们要计算T日的收益率）
-        c2c_calculator = partial(calculate_forward_returns_c2c, close_df=close_df)
         o2o_calculator = partial(calculate_forward_returns_tradable_o2o, close_df=close_df, open_df=open_df)
 
         # 定义测试配置
         test_configurations = {
-            'o2o': o2o_calculator,
-            'o2o': c2c_calculator
+            'o2o': o2o_calculator
         }
         returns_calculator_config = self.factor_manager.data_manager.config['evaluation']['returns_calculator']
         returns_calculator_result = {name: test_configurations[name] for name in returns_calculator_config}

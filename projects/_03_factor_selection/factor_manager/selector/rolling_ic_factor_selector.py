@@ -315,8 +315,6 @@ class RollingICFactorSelector:
             }
             
             # 收集全局统计
-            all_ic_means.append(avg_ic_period)
-            all_ic_irs.append(avg_ir_period)
             all_stabilities.append(stability)
             all_ic_stds.append(ic_volatility_period)
 
@@ -331,7 +329,7 @@ class RollingICFactorSelector:
         # 得到最核心的两个综合指标
         avg_ic_with_sign = float(np.average(ic_means_with_sign, weights=weights))
         avg_ic_ir_with_sign = float(np.average(ic_irs_with_sign, weights=weights))
-        best_period_ic_ir = ic_irs_with_sign.max()
+        best_period_ic_ir = max(ic_irs_with_sign)
 
         # 3. 从综合指标派生出用于筛选的绝对值指标
         avg_ic_abs = abs(avg_ic_with_sign)
@@ -371,6 +369,7 @@ class RollingICFactorSelector:
             multi_period_score, final_turnover_stats
         )
         
+        # 构建结果
         factor_stats = FactorRollingICStats(
             factor_name=factor_name,
             periods_data=aggregated_periods,
@@ -378,6 +377,7 @@ class RollingICFactorSelector:
             avg_ir_ir_with_sign=avg_ic_ir_with_sign,
             avg_ic_abs= avg_ic_abs,
             avg_ir_abs=avg_ir_abs,
+            best_period_ic_ir=best_period_ic_ir,
             nw_t_stat_series_mean=nw_t_stat_series_mean,
             avg_stability=np.mean(all_stabilities) if all_stabilities else 0.0,
             avg_ic_volatility=np.mean(all_ic_stds) if all_ic_stds else 0.0,
@@ -390,7 +390,6 @@ class RollingICFactorSelector:
             daily_turnover_volatility=final_turnover_stats['daily_turnover_volatility'],
             turnover_adjusted_score=turnover_adjusted_score
         )
-        # 构建结果
 
         return factor_stats
 
@@ -1004,7 +1003,8 @@ class RollingICFactorSelector:
             direction = "+" if list(stats.periods_data.values())[0]['ic_mean_avg'] > 0 else "-"
             logger.info(f"{i}. {direction} {name}")
             logger.info(f"   评分: {stats.multi_period_score:.1f}")
-            logger.info(f"   IC: {stats.avg_ic_abs:.3f}, IR: {stats.avg_ir_abs:.2f}")
+            logger.info(f"   最佳周期: {stats.best_period_ic_ir:.1f}")
+            logger.info(f"   综合IC: {stats.avg_ic_with_sign:.3f}, 综合IR: {stats.avg_ir_ir_with_sign:.2f}")
             logger.info(f"   稳定性: {stats.avg_stability:.1%}")
             logger.info(f"   时间跨度: {stats.time_range[0]} ~ {stats.time_range[1]}")
         

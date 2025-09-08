@@ -145,9 +145,9 @@
 
 
 #--------------------------------------------------------------------------------------- 模板以上
-
-#- factor_name: 'vwap_deviation_20d'
-#  stock_pool_name: 'ZZ800'
+##临时测试
+- factor_name: 'turnover_rate'
+  stock_pool_name: 'HS300'
 #todo 有问题
 
 #  'large_trade_ratio_10d',

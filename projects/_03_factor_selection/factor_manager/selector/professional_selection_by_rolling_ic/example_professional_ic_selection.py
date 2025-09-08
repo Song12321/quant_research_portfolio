@@ -73,7 +73,7 @@ def demo_professional_factor_selection(snap_config_id,factor_names=None):
     if  factor_names is None:
         # 2. 从CSV文件加载所有已测试的因子（实际项目中的候选池）
         csv_file = Path(
-            r"D:\lqs\codeAbout\py\Quantitative\quant_research_portfolio\projects\_03_factor_selection\factor_manager\selector\v3未经过残差化版本.csv")
+            r"D:\lqs\codeAbout\py\Quantitative\quant_research_portfolio\projects\_03_factor_selection\factor_manager\selector\o2o_v3_entity.csv")
 
         factors_df = pd.read_csv(csv_file)
         # 选择评分较高的因子作为候选（模拟实际筛选前的预选）
@@ -128,7 +128,7 @@ def ic_weighted_synthesis(snap_config_id):
     logger.info("=" * 80)
 
     # 1. 获取筛选结果
-    selected_factors, selection_report = demo_professional_factor_selection(snap_config_id)
+    selected_factors, selection_report = demo_professional_factor_selection(snap_config_id,factor_names=['turnover_rate_monthly_mean'])
 
     if not selected_factors:
         logger.error("❌ 无可用因子进行合成演示")
@@ -217,6 +217,7 @@ def main():
     # 运行演示
     snap_config_id = "20250826_131138_d03f3d9e"  # 配置快照ID
     snap_config_id = "20250825_091622_98ed2d08"  # 配置快照ID 全部
+    snap_config_id = "20250906_045625_05e460ab"  # 配置快照ID 全部
 
     ic_weighted_synthesis(snap_config_id)
 

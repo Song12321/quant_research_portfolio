@@ -349,12 +349,10 @@ class FactorCalculator:
     def _calculate_momentum_12_1(self) -> pd.DataFrame:
         """
         计算过去12个月剔除最近1个月的累计收益率 (Momentum 12-1)。
-
         金融逻辑:
         这是最经典的动量因子，由Jegadeesh和Titman提出。它剔除了最近一个月的
         短期反转效应，旨在捕捉更稳健的中期价格惯性。
         """
-        print("    > 正在计算因子: momentum_12_1...")
         # 1. 获取收盘价
         close_df = self.factor_manager.get_raw_factor('close_hfq').copy(deep=True)
         # close_df.ffill(axis=0, inplace=True) #反驳：如果人家停牌一年，你非fill前一年的数据，那误差太大了 不行！
@@ -363,6 +361,23 @@ class FactorCalculator:
         #    shift(252) 获取的是约12个月前的价格
         momentum_df = close_df.shift(21) / close_df.shift(252) - 1
         return momentum_df
+    def _calculate_momentum_12_2(self) -> pd.DataFrame:
+        """
+        计算过去12个月剔除最近1个月的累计收益率 (Momentum 12-1)。
+        金融逻辑:
+        这是最经典的动量因子，由Jegadeesh和Titman提出。它剔除了最近2个月的
+        短期反转效应，旨在捕捉更稳健的中期价格惯性。
+        """
+        # 1. 获取收盘价
+        close_df = self.factor_manager.get_raw_factor('close_hfq').copy(deep=True)
+        # close_df.ffill(axis=0, inplace=True) #反驳：如果人家停牌一年，你非fill前一年的数据，那误差太大了 不行！
+        # 2. 计算 T-21 (约1个月前) 的价格 与 T-252 (约1年前) 的价格之间的收益率
+        #    shift(21) 获取的是约1个月前的价格
+        #    shift(252) 获取的是约12个月前的价格
+        momentum_df = close_df.shift(21*2) / close_df.shift(252) - 1
+        return momentum_df
+
+
 
     def _calculate_momentum_20d(self) -> pd.DataFrame:
         """
@@ -1027,6 +1042,7 @@ class FactorCalculator:
 
         logger.info(f"--- [通用季度引擎] 因子 '{factor_name}' 计算完成 ---")
         return daily_factor_df
+    #ok
     def _create_financial_ratio_factor(self,
                                        numerator_factor: str,
                                        denominator_factor: str,

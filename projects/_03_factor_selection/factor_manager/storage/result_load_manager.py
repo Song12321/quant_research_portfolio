@@ -3,7 +3,7 @@ from pathlib import Path
 
 import  pandas as pd
 
-from quant_lib.evaluation.evaluation import calculate_forward_returns_c2c
+from quant_lib.evaluation.evaluation import calculate_forward_returns_tradable_o2o
 
 
 #ic_series_processed_60d.parquet
@@ -60,7 +60,7 @@ class ResultLoadManager:
         path = self.main_work_path / stock_pool_index /'close_hfq'/ self.version / 'close_hfq.parquet'
         df =pd.read_parquet(path)
         df.index = pd.to_datetime(df.index)
-        returns = calculate_forward_returns_c2c(period=period_days, close_df=df)
+        returns = calculate_forward_returns_tradable_o2o(period=period_days, close_df=df)
         #过滤时间"
         returns = returns.loc[start_date:end_date]
 
