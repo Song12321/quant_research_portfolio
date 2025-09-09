@@ -493,16 +493,16 @@ class ICWeightedSynthesizer(FactorSynthesizer):
                     factor_name, stock_pool_index_name, calculation_date
                 )
 
-                if latest_snapshot and latest_snapshot.ic_stats:
-                    historical_ic_stats[factor_name] = latest_snapshot.ic_stats
+                if latest_snapshot and latest_snapshot.stats:
+                    historical_ic_stats[factor_name] = latest_snapshot.stats
                     logger.debug(f"  ✅ {factor_name}: 获取历史IC @ {calculation_date}")
                 else:
                     snapshot = self.rolling_ic_manager._calculate_ic_snapshot(
                         factor_name, stock_pool_index_name, calculation_date,
                         resultLoadManager
                     )
-                    if snapshot and snapshot.ic_stats:
-                        historical_ic_stats[factor_name] = snapshot.ic_stats
+                    if snapshot and snapshot.stats:
+                        historical_ic_stats[factor_name] = snapshot.stats
                         # 保存快照以供后续使用
                         self.rolling_ic_manager._save_snapshot(snapshot)
                         logger.debug(f"  🔄 {factor_name}: 实时计算IC @ {calculation_date}")

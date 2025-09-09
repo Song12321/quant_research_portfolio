@@ -28,7 +28,7 @@ from projects._03_factor_selection.factor_manager.storage.result_load_manager im
 from projects._03_factor_selection.config_manager.config_snapshot.config_snapshot_manager import ConfigSnapshotManager
 from projects._03_factor_selection.utils.date.trade_date_utils import get_end_day_pre_n_day
 from quant_lib.config.logger_config import setup_logger
-from quant_lib.evaluation.evaluation import _calculate_newey_west_tstat
+from quant_lib.evaluation.evaluation import _calculate_newey_west_tstat, get_non_overlapping_dates
 
 logger = setup_logger(__name__)
 
@@ -38,7 +38,7 @@ class ICCalculationConfig:
     """IC计算配置"""
     lookback_months: int = 12  # 回看窗口(月) 目前写死-注意调整 0.1
     forward_periods: List[str] = None  # 前向收益周期
-    min_require_observations: int = 120  # 最小观测数量  目前写死-注意调整 0.1
+    min_require_observations: int = 2  # 最小观测数量  目前写死-注意调整 0.1
     calculation_frequency: str = 'M'  # 计算频率 ('M'=月末, 'Q'=季末)
     significance_threshold: float = 1.96  # 显著性阈值 (95%置信度)
     ewma_span: int = 126  # EWMA窗口 (约半年)
@@ -64,7 +64,7 @@ class ICSnapshot:
     stock_pool_index: str  # 股票池
     window_start: str  # 回看窗口起点
     window_end: str  # 回看窗口终点
-    ic_stats: Dict[str, Dict]  # 各周期IC统计
+    stats: Dict[str, Dict]  # 各周期统计
     metadata: Dict  # 元数据信息
 
 
@@ -208,7 +208,7 @@ class RollingICManager:
                 raise ValueError(f"因子 {factor_name} 在窗口 {window_start}-{window_end} 内无数据")
 
             # 3. 计算各周期IC统计
-            ic_stats = {}
+            stats = {}
 
             for period in self.config.forward_periods:
                 # 获取前向收益数据
@@ -236,17 +236,17 @@ class RollingICManager:
 
 
                 # 计算IC
-                period_ic_stats = self.generate_ic_snapshot_stats(
+                period_stats = self.generate_ic_snapshot_stats(
                     factor_data, return_data, period_days,
                     factor_name=factor_name,
                     stock_pool_index=stock_pool_index,
                     resultLoadManager=resultLoadManager
                 )
 
-                if period_ic_stats:
-                    ic_stats[period] = period_ic_stats
+                if period_stats:
+                    stats[period] = period_stats
 
-            if not ic_stats:
+            if not stats:
                 logger.warning(f"因子 {factor_name} 在时点 {calculation_date} 无有效IC统计--正常：因为不满足120个观测点！（人话：回头看的天数没有达到120天")
                 return None
 
@@ -257,7 +257,7 @@ class RollingICManager:
                 stock_pool_index=stock_pool_index,
                 window_start=window_start.strftime('%Y-%m-%d'),
                 window_end=window_end.strftime('%Y-%m-%d'),
-                ic_stats=ic_stats,
+                stats=stats,
                 metadata={
                     'config_manager': {
                         'lookback_months': self.config.lookback_months,
@@ -274,103 +274,122 @@ class RollingICManager:
             logger.error(f"计算IC快照失败 {factor_name}@{calculation_date}: {e}")
             return None
 
-    def generate_ic_snapshot_stats(
-        self,
-        factor_data: pd.DataFrame,
-        return_data: pd.DataFrame,
-        period_days: int,
-        factor_name: str = None,
-        stock_pool_index: str = None,
-        resultLoadManager = None
-    ) -> Optional[Dict]:
-        """计算特定周期的IC统计 - 修复重叠窗口偏差"""
-        try:
-            # 对齐因子和收益数据
-            aligned_factor, aligned_return = self._align_data(factor_data, return_data)
+    def compute_ic_statistics(self,
+                ic_series: pd.Series,
+                use_ewma_threshold: int = 24  # 决定是否启用EWMA的样本量阈值  (ic样本！ic是跨period的
+        ) -> Dict:
+            """
+            【V4 IC统计引擎】接收一个干净的IC序列，计算全面的统计指标。
+            根据样本量智能选择使用EWMA或传统统计。
 
-            if len(aligned_factor) < self.config.min_require_observations:
-                return None
-            ic_series= resultLoadManager.get_ic_series_by_period(stock_pool_index, factor_name, period_days)
-            if len(ic_series) == 0:
-                logger.info(f"因子 {factor_name} 非重叠采样后无有效IC统计 ic个数为0")
-                return None
+            Args:
+                ic_series (pd.Series): 一个干净的、非重叠的IC时间序列。
+                use_ewma_threshold (int): 启用EWMA所需的最小样本数。
+                ewma_span_base (int): 用于计算EWMA胜率的基础span。
 
-            # IC统计指标 - 使用EWMA动态计算 (可配置span，默认126约等于半年)
-            ewma_span = getattr(self.config, 'ewma_span', 126)
+            Returns:
+                Dict: 包含所有IC相关统计指标的字典。
+            """
+            if ic_series.empty or len(ic_series) < 2:
+                return {}  # 无法计算
 
-            # 注意：由于非重叠采样后样本数减少，需要调整EWMA参数
-            adjusted_ewma_span = min(ewma_span // period_days, len(ic_series) // 2)#月度：结果6
-            if adjusted_ewma_span < 6:
+            num_samples = len(ic_series)
+
+            # --- 核心决策：根据样本量选择使用 EWMA 还是 Mean/Std ---
+            if num_samples < use_ewma_threshold:
                 # 样本太少，使用传统统计方法
-                ic_mean = ic_series.mean()
-                ic_std_ewma = ic_series.std()
-                ic_std_rolling = ic_series.std()
+                ic_mean_dynamic = ic_series.mean()
+                ic_std_dynamic = ic_series.std()
+                win_rate_dynamic = ((ic_series * np.sign(ic_mean_dynamic)) > 0).mean()
             else:
-                ic_mean = ic_series.ewm(span=adjusted_ewma_span).mean().iloc[-1]
-                ic_std_ewma = ic_series.ewm(span=adjusted_ewma_span).std().iloc[-1]
-                ic_std_rolling = ic_series.std()
+                # 样本量足够，使用EWMA捕捉动态性
+                span = max(12, num_samples // 2)  # 动态调整span
+                ic_mean_dynamic = ic_series.ewm(span=span).mean().iloc[-1]
+                ic_std_dynamic = ic_series.ewm(span=span).std().iloc[-1]
+                win_rate_dynamic = ((ic_series * np.sign(ic_mean_dynamic)) > 0).ewm(span=span).mean().iloc[-1]
 
-            ic_ir = ic_mean / ic_std_ewma if ic_std_ewma > 0 else 0
-            # 确定长期方向，增加阈值保护
-            threshold_mean = 0.001
-            long_term_ic_mean = ic_series.mean()
-            if abs(long_term_ic_mean) < threshold_mean:
-                # 方向不明显，直接按正向处理或略过
-                factor_direction = 1
-            else:
-                factor_direction = np.sign(long_term_ic_mean)
+            ic_ir_dynamic = ic_mean_dynamic / ic_std_dynamic if ic_std_dynamic > 0 else 0
 
-            # 胜负序列（保留方向性）
-            win_loss_series = ((ic_series * factor_direction) > 0).astype(int)#同号
-
-            # EWMA 胜率
-            ic_win_rate_ewma = win_loss_series.ewm(span=ewma_span).mean().iloc[-1]
-            # t检验 (传统)
-            from scipy import stats
+            # --- 计算全样本的、非动态的指标 ---
+            ic_std_static = ic_series.std()
             t_stat, p_value = stats.ttest_1samp(ic_series, 0)
+            nw_t_stat, nw_p_value = _calculate_newey_west_tstat(ic_series)
 
-            # 动态Newey-West T-stat (稳健版异方差调整) 不需要ewma处理 （因为他本质是全量统计
-            ic_nw_t_stat, ic_nw_p_value = _calculate_newey_west_tstat(ic_series) #ok
-
-            #动态计算 (基于实际排名变化)
-            avg_daily_rank_change_turnover_stats  = self._calculate_daily_rank_change(
-                factor_name,aligned_factor, stock_pool_index, ic_series.index, resultLoadManager
-            )
-            # 计算显著性标记和质量评估
-            significance_threshold = getattr(self.config, 'significance_threshold', 1.96)
-            max_turnover = getattr(self.config, 'max_monthly_turnover', 0.40)
-
-            is_significant_nw = abs(ic_nw_t_stat) > significance_threshold
-            is_significant_traditional = abs(t_stat) > significance_threshold
-
-            # 综合质量评级
-            quality_score = self._calculate_quality_score(
-                ic_mean, ic_ir, ic_win_rate_ewma, ic_nw_t_stat, avg_daily_rank_change_turnover_stats.get('avg_daily_rank_change', 0)
-            )
-
-            return {
-                'ic_mean': float(ic_mean),
-                'ic_std_ewma': float(ic_std_ewma),  # 新增EWMA标准差
-                'ic_std_rolling': float(ic_std_rolling),  # 保留全样本标准差
-                'ic_ir': float(ic_ir),  # 基于EWMA标准差的IR
-                'ic_win_rate': float(ic_win_rate_ewma) ,
-                'ic_t_stat': float(t_stat),  # 传统t统计量
+            # --- 组装成你需要的完整格式 ---
+            stats_dict = {
+                'ic_mean': float(ic_mean_dynamic),
+                'ic_std_ewma': float(ic_std_dynamic if num_samples >= use_ewma_threshold else ic_std_static),
+                'ic_std_rolling': float(ic_std_static),  # 全样本标准差
+                'ic_ir': float(ic_ir_dynamic),
+                'ic_win_rate': float(win_rate_dynamic),
+                'ic_t_stat': float(t_stat),
                 'ic_p_value': float(p_value),
-                'ic_nw_t_stat': float(ic_nw_t_stat),  # Newey-West调整T统计量
-                'ic_nw_p_value': float(ic_nw_p_value),  # 对应p值
-                'ic_count': len(ic_series),
+                'ic_nw_t_stat': float(nw_t_stat),
+                'ic_nw_p_value': float(nw_p_value),
+                'ic_count': num_samples,
                 'ic_max': float(ic_series.max()),
                 'ic_min': float(ic_series.min()),
-                # 新增质量指标
-                'is_significant_nw': bool(is_significant_nw),  # Newey-West显著性
-                'is_significant_traditional': bool(is_significant_traditional),  # 传统显著性
-                'avg_daily_rank_change_stats': avg_daily_rank_change_turnover_stats,  # 换手率约束
-                # 'quality_score': float(quality_score),  # 综合质量评分
-                **avg_daily_rank_change_turnover_stats  # 动态换手率统计
+                'is_significant_nw': abs(nw_t_stat) > 1.96,
+                'is_significant_traditional': bool(abs(t_stat) > 1.96),
+
+            }
+            return stats_dict
+
+    def generate_ic_snapshot_stats(
+            self,
+            factor_data: pd.DataFrame,
+            return_data: pd.DataFrame,
+            period_days: int,
+            factor_name: str = None,  # 假设这些参数用于加载和换手率计算
+            stock_pool_index: str = None,
+            resultLoadManager=None
+    ) -> Optional[Dict]:
+        """
+        【V2 重构版】计算特定周期的IC统计。
+        此版本将核心统计逻辑外包给 compute_ic_statistics 函数。
+        """
+        try:
+            # 1. 对齐数据
+            aligned_factor, aligned_return = self._align_data(factor_data, return_data)
+
+            # 2. 非重叠采样，生成干净的IC序列
+            # 注意：这里我们自己计算IC，而不是从外部加载
+            all_dates = aligned_factor.index.sort_values().unique()
+            non_overlapping_dates = get_non_overlapping_dates(period_days, all_dates)
+
+            if not non_overlapping_dates or len(non_overlapping_dates) <  self.config.min_require_observations:#因为周期如果120d ，那么回看一年也才2个ic
+                return None
+
+            ic_series = aligned_factor.loc[non_overlapping_dates].corrwith(
+                aligned_return.loc[non_overlapping_dates],
+                axis=1, method='spearman'
+            ).dropna()
+
+            if ic_series.empty: return None
+
+            # 3. 【核心变化】调用独立的“IC统计引擎”
+            ic_related_stats = self.compute_ic_statistics(
+                ic_series,
+                use_ewma_threshold=24
+            )
+            if not ic_related_stats: return None
+
+            # 4. 计算其他非IC相关指标（如换手率）
+            # 这里的aligned_factor应该是完整的窗口数据，而不是采样的
+            turnover_stats = self._calculate_daily_rank_change(
+                factor_name, aligned_factor, stock_pool_index, ic_series.index, resultLoadManager
+            )
+
+            # 5. 组合最终结果
+            final_stats = {
+                **ic_related_stats,
+                **turnover_stats
             }
 
+            return final_stats
+
         except Exception as e:
-            raise  ValueError(f"计算周期IC失败: {e}")
+            raise ValueError(f"计算周期IC失败: {e}")
     #a give
 
 
@@ -658,7 +677,7 @@ class RollingICManager:
             'stock_pool_index': snapshot.stock_pool_index,
             'window_start': snapshot.window_start,
             'window_end': snapshot.window_end,
-            'ic_stats': snapshot.ic_stats,
+            'stats': snapshot.stats,
             'metadata': snapshot.metadata
         }
 
@@ -770,7 +789,7 @@ def run_cal_and_save_rolling_ic_by_snapshot_config_id(snapshot_config_id, factor
     config = ICCalculationConfig(
         lookback_months=12,
         forward_periods=config_evaluation['forward_periods'],
-        min_require_observations=120,
+        min_require_observations=2,
         calculation_frequency='M'
     )
     if 'o2o' not in config_evaluation['returns_calculator']:
@@ -788,6 +807,14 @@ def run_cal_and_save_rolling_ic_by_snapshot_config_id(snapshot_config_id, factor
     )
     print(f"计算完成，共生成 {sum(len(snaps) for snaps in snapshots.values())} 个IC快照")
 if __name__ == '__main__':
+    #
+    # s = pd.Series(range(5))
+    # x= s.ewm(span=150).mean()
+    test_configurations = {
+        'o2o': 'o2o2',
+        'o2o': 'c2c_calculator'
+    }
+    returns_calculator_result = {name: test_configurations[name] for name in ['o2o']}
     # 使用并发执行器进行批量计算
     from projects._03_factor_selection.utils.efficiency_engineering.concurrent_executor import run_concurrent_factors
     
