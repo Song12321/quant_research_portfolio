@@ -5,7 +5,9 @@ from typing import Dict, List, Optional, Tuple, Any
 
 import pandas as pd
 import yaml
+from sm.sm import config_db_path
 
+from projects._03_factor_selection.config_manager.base_config import config_yaml_path
 from projects._03_factor_selection.config_manager.function_load.local_config_file_definition import \
     _massive_test_ZZ800_profile, pool_for_massive_test_MICROSTRUCTURE_profile, generate_dynamic_config, \
     CSI300_most_basic_profile, CSI300_none_FFF_most_basic_profile, CSI300_more_filter_profile, \
@@ -197,7 +199,7 @@ def _load_file(config_path: str) -> Dict[str, Any]:
     return config
 
 
-def _load_local_config_functional(config_path: str) -> Dict[str, Any]:
+def _load_local_config_functional(config_path: str=config_yaml_path) -> Dict[str, Any]:
     # confirm_production_mode(massive_test_mode)
     """加载配置文件"""
     config = _load_file(config_path)

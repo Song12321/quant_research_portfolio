@@ -38,8 +38,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from quant_lib.evaluation.evaluation import (
     calculate_ic,
-    calculate_quantile_returns, fama_macbeth, calculate_turnover,
-     quantile_stats_result,
+    calculate_quantile_returns, fama_macbeth, calculate_top_quantile_turnover_dict,
+    quantile_stats_result,
     calculate_quantile_daily_returns, calculate_forward_returns_tradable_o2o
 
 )
@@ -305,14 +305,14 @@ class FactorAnalyzer:
 
     def test_turnover_result(self, factor_data):
         logger.info("    > 正在计算因子换手率...")
-        turnover_series_periods_dict = calculate_turnover(
+        turnover_series_periods_dict = calculate_top_quantile_turnover_dict(
             factor_df=factor_data,
             n_quantiles=self.n_quantiles,
             forward_periods=self.test_common_periods
         )
-        turnover_stats_periods_dict = {}
+        top_q_turnover_stats_periods_dict = {}
         for period, turnover_series in turnover_series_periods_dict.items():
-            turnover_stats_periods_dict[period] = {
+            top_q_turnover_stats_periods_dict[period] = {
                 'turnover_mean': turnover_series.mean(),  # 周期平均换手率
                 'turnover_annual': turnover_series.mean() * (252 / int(period[:-1]))  # 年化换手率
                 ##
@@ -321,7 +321,7 @@ class FactorAnalyzer:
                 # 年化算出来25.2
                 # 资金来回滚动25次 有点费税费！#
             }
-        return turnover_stats_periods_dict
+        return top_q_turnover_stats_periods_dict
 
     # def test_fama_macbeth(self,
     #                       factor_data: pd.DataFrame,
@@ -960,7 +960,7 @@ class FactorAnalyzer:
     #
     #             "fm_returns_series_periods_dict": fm_returns_series_dict,
     #             "fm_stat_results_periods_dict": fm_summary_dict,
-    #             "turnover_stats_periods_dict": turnover,
+    #             "top_q_turnover_stats_periods_dict": turnover,
     #             "style_correlation_dict": style_correlation_dict
     #         }
     #         # b) 将本次配置的所有结果打包
@@ -1063,7 +1063,7 @@ class FactorAnalyzer:
 
                 "fm_returns_series_periods_dict": fm_returns_series_dict,
                 "fm_stat_results_periods_dict": fm_summary_dict,
-                "turnover_stats_periods_dict": turnover,
+                "top_q_turnover_stats_periods_dict": turnover,
                 "style_correlation_dict": style_correlation_dict
             }
             
@@ -1147,7 +1147,7 @@ class FactorAnalyzer:
     #
     #             "fm_returns_series_periods_dict": fm_returns_series_dict,
     #             "fm_stat_results_periods_dict": fm_summary_dict,
-    #             "turnover_stats_periods_dict": turnover,
+    #             "top_q_turnover_stats_periods_dict": turnover,
     #             "style_correlation_dict": style_correlation_dict
     #         }
     #         # b) 将本次配置的所有结果打包
@@ -1291,7 +1291,7 @@ class FactorAnalyzer:
     #                                            ic_series_periods_dict, ic_stats_periods_dict,
     #                                            quantile_daily_returns_for_plot_dict, quantile_stats_periods_dict,
     #                                            factor_returns_series_periods_dict, fm_stat_results_periods_dict,
-    #                                            turnover_stats_periods_dict, style_correlation_dict):
+    #                                            top_q_turnover_stats_periods_dict, style_correlation_dict):
     #     #  综合评价
     #     evaluation_score_dict = self.evaluation_score_dict(ic_stats_periods_dict,
     #                                                        quantile_stats_periods_dict,
@@ -1330,7 +1330,7 @@ class FactorAnalyzer:
     #         quantile_stats_periods_dict=quantile_stats_periods_dict,
     #         factor_returns_series_periods_dict=factor_returns_series_periods_dict,
     #         fm_stat_results_periods_dict=fm_stat_results_periods_dict,
-    #         turnover_stats_periods_dict=turnover_stats_periods_dict,
+    #         top_q_turnover_stats_periods_dict=top_q_turnover_stats_periods_dict,
     #         style_correlation_dict=style_correlation_dict,
     #         factor_df=target_factor_df  # 传入未经shift的T日因子
     #     )
@@ -1523,7 +1523,7 @@ class FactorAnalyzer:
                 "quantile_stats_periods_dict_processed": q_st,
                 "fm_returns_series_periods_dict": fm_returns_series_dict,
                 "fm_stat_results_periods_dict": fm_summary_dict,
-                "turnover_stats_periods_dict": turnover,
+                "top_q_turnover_stats_periods_dict": turnover,
                 "style_correlation_dict": style_correlation_dict
             }
             # b) 将本次配置的所有结果打包

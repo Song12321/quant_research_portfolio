@@ -33,12 +33,16 @@ def load_ic_stats(json:json=None,is_raw_factor:bool=False):
     ic_stas =json.get(f'ic_analysis{subfix}')
     return ic_stas
 class ResultLoadManager:
-    def __init__(self, calcu_return_type='o2o', version:str=None, is_raw_factor: bool=False):
-        if version is None:
+    def __init__(self, calcu_return_type='o2o',pool_index:str=None, s:str=None,e:str=None,version:str=None, is_raw_factor: bool=False):
+        if version is None :
             raise ValueError('请指定版本')
         self.main_work_path = Path(r"D:\lqs\codeAbout\py\Quantitative\import_file\quant_research_portfolio\workspace\result")
         self.calcu_type = calcu_return_type
         self.version = version
+        self.pool_index = pool_index
+        self.start_date = s
+        self.end_date = e
+
         self.is_raw_factor = is_raw_factor
     #严禁使用！这是整体的ic。整个周期的（严重未来寒函数
     # def get_ic_stats_from_local(self, stock_pool_index, factor_name):
@@ -47,14 +51,16 @@ class ResultLoadManager:
     #     ic_stas = load_ic_stats(ret, self.is_raw_factor)
     #     return ic_stas
 
-    def get_factor_data(self, factor_name, stock_pool_index, start_date, end_date):
+    def get_factor_data(self, factor_name, pool_index=None,start_date=None, end_date=None):
         if self.is_raw_factor:
             raise ValueError('暂不支持raw因子数据')
-        factor_self_path = self.get_factor_self_path(stock_pool_index, factor_name)
+        pool_index =  self.pool_index if pool_index is None else pool_index
+        factor_self_path = self.get_factor_self_path(pool_index, factor_name)
         df = pd.read_parquet(factor_self_path / "processed_factor.parquet")
         df.index = pd.to_datetime(df.index)
-        df = df.loc[start_date:end_date]
-        return df
+        if start_date is None and end_date is None :
+            return df
+        return  df.loc[start_date:end_date]
 
     def get_o2o_return_data(self, stock_pool_index, start_date, end_date, period_days):
         path = self.main_work_path / stock_pool_index /'open_hfq'/ self.version / 'open_hfq.parquet'
@@ -94,6 +100,10 @@ class ResultLoadManager:
         df = pd.read_parquet(factor_path/f"ic_series_processed_{period_days}d.parquet")
         #转成series
         return df.squeeze()
+    def get_summary_stats(self, factor_name):
+        factor_path = self.get_factor_self_path(self.pool_index, factor_name)
+        json = load_summary_stats(factor_path/'summary_stats.json')
+        return json
 
 
 if __name__ == '__main__':

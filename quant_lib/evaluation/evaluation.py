@@ -1,6 +1,7 @@
 import math
 
 from pandas import Series
+from prompt_toolkit.key_binding.bindings.named_commands import self_insert
 from scipy.stats._mstats_basic import winsorize
 
 from quant_lib import logger
@@ -574,55 +575,87 @@ def calculate_quantile_returns(
 #     logger.info(f"换手率计算完成: 平均换手率={turnover.mean():.4f}")
 #     return turnover
 
-
 # ok
-def calculate_turnover(
-        factor_df: pd.DataFrame,
+def calculate_top_quantile_turnover_dict(        factor_df: pd.DataFrame,
         n_quantiles: int = 5,
-        forward_periods: List[int] = [1, 5, 20]
-) -> Dict[str, pd.Series]:
+        forward_periods: List[int] = [1, 5, 20],
+                                                 target_quantile: int = 5  # 默认为做多头部（第5组）
+
+                                                 ) -> Dict[str, pd.Series]:
+        ret = {}
+        for period in forward_periods:
+            ret[f'{period}d'] = calculate_top_quantile_turnover(factor_df, period, n_quantiles, 5)
+        return ret
+
+def calculate_top_quantile_turnover(
+        factor_df: pd.DataFrame,
+        rebalance_period: int,
+        n_quantiles: int = 5,
+        target_quantile: int = 5  # 默认为做多头部（第5组）
+) -> pd.Series:
     """
-    向量化计算因子在不同持有期下的换手率。
+    【V2 专业版】计算头部组合的实际换手率。
+    此函数精确模拟策略在调仓日的买卖行为，用于估算真实交易成本。
 
     Args:
-        factor_df (pd.DataFrame): 因子值DataFrame (index=date, columns=stock)。
-        n_quantiles (int): 分位数数量。
-        forward_periods (List[int]): 调仓周期列表。
+        factor_df (pd.DataFrame): 完整的因子值DataFrame。
+        rebalance_period (int): 调仓周期/采样间隔。
+        n_quantiles (int): 分位数总数。
+        target_quantile (int): 目标持仓组合的编号 (例如 5 代表做多Top组, 1 代表做空Bottom组)。
 
     Returns:
-        Dict[str, pd.Series]: 字典，key为周期(如 '5d')，value为换手率的时间序列。
+        pd.Series: 一个以调仓日为索引的、真实的策略换手率时间序列。
     """
-    turnover_periods_dict = {}
-    # 核心：计算每日的分位数归属
-    # 使用rank(pct=True)比qcut更稳健，能直接得到百分位排名
-    quantiles = factor_df.rank(axis=1, pct=True, method='first')
-    ###假想满分1，
-    # 因子rank值：0.83：表示我在0.83这个水位
-    # 如果分5(n_quantiles)个桶（每个桶那就是1/n_quantiles = 0.2
-    # 0.83是排在第几个桶。0.83/0.2 =4.01个 超过第4个桶，ceil 是5
-    # np.ceil(quantiles * n_quantiles 这个就是等于 0.83/0.2->0.83/(1/5) ->0.83 * 5
-    # #
-    for period in forward_periods:
-        # 将分位数矩阵向前移动`period`天
-        quantiles_shifted = quantiles.shift(period)
+    if factor_df.empty:
+        return pd.Series(dtype=float)
 
-        # 计算两个周期之间，股票的分位数变化了多少
-        # 如果股票保持在同一个分位数内，变化为0，否则为1
-        # 注意：这里我们比较的是分位数的“档位”，而不是具体的百分比值
-        # (quantiles * n_quantiles).ceil() 会得到 1, 2, 3, 4, 5 的整数分位
-        turnover_matrix = np.ceil(quantiles * n_quantiles) != np.ceil(quantiles_shifted * n_quantiles)
+    # --- 1. 确定非重叠的调仓日 ---
+    all_dates = factor_df.index.sort_values().unique()
+    non_overlapping_dates = get_non_overlapping_dates(rebalance_period, all_dates)
 
-        # 每日换手率 = 发生变动的股票数 / 当天有效股票总数
-        valid_counts = factor_df.notna().sum(axis=1)
-        daily_turnover = turnover_matrix.sum(axis=1) / valid_counts.where(valid_counts > 0, np.nan)
+    if len(non_overlapping_dates) < 2:
+        return pd.Series(dtype=float)  # 至少需要两个调仓日才能计算换手率
 
-        # --- 核心修正：对每日滚动换手率进行非重叠采样 ---
-        non_overlapping_dates = get_non_overlapping_dates(period, daily_turnover.dropna().index.sort_values())
-        # turnover_series 现在是干净的、与调仓周期匹配的换手率序列
-        turnover_series = daily_turnover.loc[non_overlapping_dates]
+    # --- 2. 计算每个调仓日的分位归属 ---
+    # 只在调仓日进行计算，提高效率
+    factor_on_rebalance_days = factor_df.loc[non_overlapping_dates]
+    quantile_groups = np.ceil(
+        factor_on_rebalance_days.rank(axis=1, pct=True, method='first') * n_quantiles
+    )
 
-        turnover_periods_dict[f'{period}d'] = turnover_series.rename('turnover')#每次调仓时的平均换手率
-    return turnover_periods_dict
+    turnover_list = []
+
+    # --- 3. 逐期计算组合换手 ---
+    # 从第二个调仓日开始，与前一个调仓日对比
+    for i in range(1, len(quantile_groups)):
+        prev_date = quantile_groups.index[i - 1]
+        curr_date = quantile_groups.index[i]
+
+        # a. 获取前后两个时期的【目标组合】成分股（使用集合set，便于计算交集）
+        prev_series = quantile_groups.loc[prev_date].dropna()
+        curr_series = quantile_groups.loc[curr_date].dropna()
+
+        prev_portfolio = set(prev_series[prev_series == target_quantile].index)
+        curr_portfolio = set(curr_series[curr_series == target_quantile].index)
+
+        # b. 计算交集和换手率
+        # 换手率 = 1 - 留存比例 = 1 - (交集股票数 / 当前组合股票数)
+        common_stocks_count = len(prev_portfolio.intersection(curr_portfolio))
+        current_portfolio_size = len(curr_portfolio)
+
+        if current_portfolio_size == 0:
+            turnover = np.nan  # 避免除以零
+        else:
+            turnover = 1.0 - (common_stocks_count / current_portfolio_size)
+
+        turnover_list.append({'date': curr_date, 'turnover': turnover})
+
+    # --- 4. 转换为 Pandas Series ---
+    if not turnover_list:
+        return pd.Series(dtype=float)
+
+    turnover_df = pd.DataFrame(turnover_list).set_index('date')
+    return turnover_df['turnover']
 
 def get_non_overlapping_dates(period, all_dates):
     non_overlapping_dates = []

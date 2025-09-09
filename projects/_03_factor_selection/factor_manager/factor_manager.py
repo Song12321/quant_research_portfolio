@@ -70,7 +70,7 @@ class FactorResultsManager:
         quantile_stats_periods_dict_raw = results.get("quantile_stats_periods_dict_raw", {})
         quantile_stats_periods_dict_processed = results.get("quantile_stats_periods_dict_processed", {})
         fm_stat_results_periods_dict = results.get("fm_stat_results_periods_dict", {})
-        turnover_stats_periods_dict = results.get("turnover_stats_periods_dict", {})
+        top_q_turnover_stats_periods_dict = results.get("top_q_turnover_stats_periods_dict", {})
         style_correlation_dict = results.get("style_correlation_dict", {})
 
         summary_stats = {
@@ -79,7 +79,7 @@ class FactorResultsManager:
             'quantile_backtest_raw': quantile_stats_periods_dict_raw,
             'quantile_backtest_processed': quantile_stats_periods_dict_processed,
             'fama_macbeth': fm_stat_results_periods_dict,
-            'turnover': turnover_stats_periods_dict,
+            'top_q_turnover': top_q_turnover_stats_periods_dict,
             'style_correlation': style_correlation_dict
         }
         with open(output_path / 'summary_stats.json', 'w') as f:
