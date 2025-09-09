@@ -280,7 +280,7 @@ if __name__ == "__main__":
     # 读取因子列表
     # df = pd.read_csv(r'D:\lqs\codeAbout\py\Quantitative\quant_research_portfolio\projects\_03_factor_selection\factor_manager\selector\o2o_v3.csv')
     # factor_names = df['factor_name'].unique().tolist()
-    factor_names = ['vwap_deviation_20d','roe_change_q','roa_ttm','turnover_rate',  'large_trade_ratio_10d','beta','revenue_growth_ttm']
+    factor_names =['amihud_liquidity', 'cfp_ratio', 'ln_turnover_value_90d', 'operating_accruals', 'turnover_rate', 'turnover_rate_90d_mean', 'turnover_rate_monthly_mean', 'volatility_120d', 'volatility_40d', 'volatility_90d']
     #
     snapshot_config_id = '20250906_045625_05e460ab'
     

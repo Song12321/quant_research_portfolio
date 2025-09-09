@@ -664,6 +664,7 @@ def profile_elite_factors(
 
 
 #最新版评价因子！挑选因子！
+#全局ic ir 进行评价！
 def get_passed_factors(
         summary_row: Union[pd.Series, dict]=None,
         config: Dict = None
@@ -676,13 +677,15 @@ def get_passed_factors(
     elite_factor_reports = profile_elite_factors(
         all_factors_summary=all_factors_summary_data
     )
-
+    names=[]
     # --- 3. 查看精英因子的深度画像报告 ---
-    import json
     for factor_name, report in elite_factor_reports.items():
+        names.append(factor_name)
         print(f"\n----- {factor_name} 精英因子报告 -----")
         # 使用json美化输出
         print(json.dumps(report, indent=4, ensure_ascii=False))
+    print("\n" + "=" * 50)
+    print(f"因子list：：{names}")
 if __name__ == '__main__':
 
     #

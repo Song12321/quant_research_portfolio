@@ -842,4 +842,4 @@ if __name__ == '__main__':
     #         logger.warning(f"  - {factor}: {error}")
     
     # 单个测试用法(保留原有方式)
-    run_cal_and_save_rolling_ic_by_snapshot_config_id('20250909_125913_b5be5b49',['vwap_deviation_20d'] )
+    run_cal_and_save_rolling_ic_by_snapshot_config_id('20250906_045625_05e460ab',['amihud_liquidity', 'cfp_ratio', 'ln_turnover_value_90d', 'operating_accruals', 'turnover_rate', 'turnover_rate_90d_mean', 'turnover_rate_monthly_mean', 'volatility_120d', 'volatility_40d', 'volatility_90d'] )
