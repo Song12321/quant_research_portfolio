@@ -41,7 +41,7 @@ def load_test_data():
         end_date = '2021-12-31'
         
         # 加载价格数据
-        price_df = result_manager.get_close_hfq_data(stock_pool_index, start_date, end_date)
+        open_hfq = result_manager.get_price_data_by_type(stock_pool_index, start_date, end_date, 'open_hfq')
         
         # 加载因子数据 - 选择一个相对稳定的因子进行测试
         factor_data = result_manager.get_factor_data(
@@ -55,27 +55,27 @@ def load_test_data():
             )
         
         # 为了演示，限制股票数量（提高测试速度）
-        if len(price_df.columns) > 50:
-            selected_stocks = price_df.columns[:50]  # 选择前50只股票
-            price_df = price_df[selected_stocks]
+        if len(open_hfq.columns) > 50:
+            selected_stocks = open_hfq.columns[:50]  # 选择前50只股票
+            open_hfq = open_hfq[selected_stocks]
             factor_data = factor_data[selected_stocks]
         
         # 确保数据质量
         # 移除全NaN的股票
-        price_df = price_df.dropna(axis=1, how='all')
+        open_hfq = open_hfq.dropna(axis=1, how='all')
         factor_data = factor_data.dropna(axis=1, how='all')
         
         # 保证价格和因子的股票一致
-        common_stocks = price_df.columns.intersection(factor_data.columns)
-        price_df = price_df[common_stocks]
+        common_stocks = open_hfq.columns.intersection(factor_data.columns)
+        open_hfq = open_hfq[common_stocks]
         factor_data = factor_data[common_stocks]
         
         logger.info(f"测试数据加载完成:")
-        logger.info(f"  价格数据: {price_df.shape}")
+        logger.info(f"  价格数据: {open_hfq.shape}")
         logger.info(f"  因子数据: {factor_data.shape}")
-        logger.info(f"  时间范围: {price_df.index.min()} ~ {price_df.index.max()}")
+        logger.info(f"  时间范围: {open_hfq.index.min()} ~ {open_hfq.index.max()}")
         
-        return price_df, {'test_factor': factor_data}
+        return open_hfq, {'test_factor': factor_data}
         
     except Exception as e:
         logger.error(f"数据加载失败: {e}")

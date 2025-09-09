@@ -218,7 +218,7 @@ def run_working_test():
         )
         
         # 使用较短的时间范围
-        price_df = result_manager.get_close_hfq_data('000906', '2021-01-01', '2021-06-30')
+        open_hfq = result_manager.get_price_data_by_type('000906', '2021-01-01', '2021-06-30', 'open_hfq')
         factor_data = result_manager.get_factor_data(
             'lqs_orthogonal_v1', '000906', '2021-01-01', '2021-06-30'
         )
@@ -229,19 +229,19 @@ def run_working_test():
                 'volatility_40d', '000906', '2021-01-01', '2021-06-30'
             )
         
-        if price_df is None or factor_data is None:
+        if open_hfq is None or factor_data is None:
             raise ValueError("数据加载失败")
         
-        print(f"数据加载成功: 价格{price_df.shape}, 因子{factor_data.shape}")
+        print(f"数据加载成功: 价格{open_hfq.shape}, 因子{factor_data.shape}")
         
         # 2. 数据对齐
-        common_dates = price_df.index.intersection(factor_data.index)
-        common_stocks = price_df.columns.intersection(factor_data.columns)
+        common_dates = open_hfq.index.intersection(factor_data.index)
+        common_stocks = open_hfq.columns.intersection(factor_data.columns)
         
         # 限制股票数量（提高速度）
         selected_stocks = common_stocks[:20]  # 只选20只股票
         
-        aligned_price = price_df.loc[common_dates, selected_stocks]
+        aligned_price = open_hfq.loc[common_dates, selected_stocks]
         aligned_factor = factor_data.loc[common_dates, selected_stocks]
         
         print(f"数据对齐完成: {aligned_price.shape}")

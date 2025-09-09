@@ -43,7 +43,6 @@ def safe_winsorize_series(series: pd.Series, limits: list = [0.025, 0.025]) -> p
 
 
 def calculate_forward_returns_tradable_o2o(period: int,
-                                           close_df: pd.DataFrame,
                                            open_df: pd.DataFrame,
                                            winsorize_limits: list = [0.025, 0.025]) -> pd.DataFrame:
     """

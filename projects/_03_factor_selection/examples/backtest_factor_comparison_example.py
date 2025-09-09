@@ -43,11 +43,11 @@ def load_example_data():
         logger.info(f"数据配置: 股票池={stock_pool_index}, 时间范围={start_date}~{end_date}")
         
         # 1. 加载真实价格数据（后复权收盘价）
-        price_df = result_manager.get_close_hfq_data(stock_pool_index, start_date, end_date)
+        open_hfq_df = result_manager.get_price_data_by_type(stock_pool_index, start_date, end_date, 'open_hfq')
 
         # 2. 加载日收益率数据（供参考，回测器内部会用价格数据计算收益）
         logger.info("正在加载收益率数据...")
-        return_1d_df = result_manager.get_return_data(stock_pool_index, start_date, end_date, period_days=1)
+        return_1d_df = result_manager.get_o2o_return_data(stock_pool_index, start_date, end_date, period_days=1)
         logger.info(f"日收益率数据加载成功: {return_1d_df.shape}")
 
         # 3. 加载因子数据
@@ -83,14 +83,14 @@ def load_example_data():
             raise ValueError("未能加载到有效的因子数据")
         
         # 检查时间对齐
-        price_dates = set(price_df.index)
+        price_dates = set(open_hfq_df.index)
         for factor_name, factor_data in factor_dict.items():
             factor_dates = set(factor_data.index)
             common_dates = price_dates.intersection(factor_dates)
             logger.info(f"{factor_name} 与价格数据共同日期: {len(common_dates)}/{len(price_dates)}")
             
         # 检查股票对齐
-        price_stocks = set(price_df.columns)
+        price_stocks = set(open_hfq_df.columns)
         for factor_name, factor_data in factor_dict.items():
             factor_stocks = set(factor_data.columns) 
             common_stocks = price_stocks.intersection(factor_stocks)
@@ -98,7 +98,7 @@ def load_example_data():
         
         # 6. 数据摘要
         logger.info("数据加载完成摘要:")
-        logger.info(f"  📈 价格数据: {price_df.shape} (日期: {price_df.index.min()} ~ {price_df.index.max()})")
+        logger.info(f"  📈 价格数据: {open_hfq_df.shape} (日期: {open_hfq_df.index.min()} ~ {open_hfq_df.index.max()})")
         logger.info(f"  🎯 有效因子数量: {len(factor_dict)}")
         
         for name, df in factor_dict.items():
@@ -106,7 +106,7 @@ def load_example_data():
             logger.info(f"    - {name}: {df.shape}, 数据覆盖率: {data_coverage:.1f}%")
         
 
-        return price_df, factor_dict
+        return open_hfq_df, factor_dict
         
     except Exception as e:
         logger.error(f"数据加载失败: {e}")

@@ -108,7 +108,7 @@ def test_real_data():
         stock_pool = '000906'
         
         # 加载数据
-        price_df = result_manager.get_close_hfq_data(stock_pool, start_date, end_date)
+        open_hfq =  result_manager.get_price_data_by_type(stock_pool, start_date, end_date, 'open_hfq')
         factor_data = result_manager.get_factor_data(
             'lqs_orthogonal_v1', stock_pool, start_date, end_date
         )
@@ -119,11 +119,11 @@ def test_real_data():
             )
         
         # 限制股票数量（测试用）
-        selected_stocks = price_df.columns[:30]  # 只选30只股票
-        price_df = price_df[selected_stocks]
+        selected_stocks = open_hfq.columns[:30]  # 只选30只股票
+        open_hfq = open_hfq[selected_stocks]
         factor_data = factor_data[selected_stocks]
         
-        logger.info(f"真实数据: 价格{price_df.shape}, 因子{factor_data.shape}")
+        logger.info(f"真实数据: 价格{open_hfq.shape}, 因子{factor_data.shape}")
         
         # 配置
         config = BacktestConfig(
@@ -136,7 +136,7 @@ def test_real_data():
         
         # 运行回测
         results, comparison = fixed_backtrader_test(
-            price_df, 
+            open_hfq,
             {'test_factor': factor_data}, 
             config
         )

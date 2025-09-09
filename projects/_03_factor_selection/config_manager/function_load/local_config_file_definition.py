@@ -89,7 +89,7 @@ style_factor_list =  [
 # 模板1: 快速测试设置 (Fast/Debug Setting)
 # 只跑一个核心周期，节省时间
 EVAL_SETTING_FAST = {
-    "forward_periods": [1, 5, 10, 21, 40, 60, 120], # 只跑一个周期
+    "forward_periods": [5,10], # 只跑一个周期
     "returns_calculator": ['o2o'], # 只用一种计算方式
     # style_factor_list 可以保持完整，因为它不影响计算速度
     "style_factor_list": [
@@ -109,7 +109,7 @@ EVAL_SETTING_STANDARD = {
 # 模板3: 全面批量测试设置 (Massive Test Setting)
 # 最全面的配置，用于最终的、彻底的因子有效性检验
 EVAL_SETTING_FULL = {
-    "quantiles": 5, # 兼容旧命名
+    "quantiles": 5,
     "forward_periods": [1, 5, 10, 21, 40, 60, 120],
     "returns_calculator": [ 'o2o'],
     "style_factor_list": style_factor_list,

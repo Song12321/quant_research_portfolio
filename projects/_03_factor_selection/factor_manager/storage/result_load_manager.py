@@ -56,11 +56,11 @@ class ResultLoadManager:
         df = df.loc[start_date:end_date]
         return df
 
-    def get_return_data(self, stock_pool_index,start_date, end_date, period_days):
-        path = self.main_work_path / stock_pool_index /'close_hfq'/ self.version / 'close_hfq.parquet'
+    def get_o2o_return_data(self, stock_pool_index, start_date, end_date, period_days):
+        path = self.main_work_path / stock_pool_index /'open_hfq'/ self.version / 'open_hfq.parquet'
         df =pd.read_parquet(path)
         df.index = pd.to_datetime(df.index)
-        returns = calculate_forward_returns_tradable_o2o(period=period_days, close_df=df)
+        returns = calculate_forward_returns_tradable_o2o(period=period_days, open_df=df)
         #过滤时间"
         returns = returns.loc[start_date:end_date]
 
@@ -92,4 +92,4 @@ class ResultLoadManager:
 if __name__ == '__main__':
     manager = ResultLoadManager()
     # manager.get_factor_data('volatility_90d','000906', '20190328', '20231231')
-    manager.get_return_data( '000906','20230601', '20240710', 1)
+    manager.get_o2o_return_data('000906', '20230601', '20240710', 1)

@@ -1485,11 +1485,10 @@ class FactorAnalyzer:
                 0]
 
         # b) 获取T日的价格数据（用于收益率计算，get_prepare_aligned_factor_for_analysis会自动识别并保持T日值）
-        close_df = self.factor_manager.get_prepare_aligned_factor_for_analysis(factor_request='close_hfq', stock_pool_index_name=stock_pool_name, for_test=True)
         open_df = self.factor_manager.get_prepare_aligned_factor_for_analysis(factor_request='open_hfq', stock_pool_index_name=stock_pool_name, for_test=True)
 
         # 准备收益率计算器（价格数据不需要shift，因为我们要计算T日的收益率）
-        o2o_calculator = partial(calculate_forward_returns_tradable_o2o, close_df=close_df, open_df=open_df)
+        o2o_calculator = partial(calculate_forward_returns_tradable_o2o, open_df=open_df)
 
         # 定义测试配置
         test_configurations = {
