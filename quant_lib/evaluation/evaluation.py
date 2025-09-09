@@ -1,3 +1,5 @@
+import math
+
 from pandas import Series
 from scipy.stats._mstats_basic import winsorize
 
@@ -203,11 +205,11 @@ def calculate_forward_returns_tradable_o2o(period: int,
     # factor_data = {'factor': [1, 2, 3, 4, 5]}  # 因子值每天递增
     # factor_df = pd.DataFrame(factor_data, index=dates)
 
-# ok
+# ok ok
 def calculate_ic(
         factor_df: pd.DataFrame,
         price_df: pd.DataFrame,
-        forward_periods: List[int] = [1, 5, 20],
+        forward_periods: List[int],
         method: str = 'spearman',
         returns_calculator: Callable[[int, pd.DataFrame], pd.DataFrame] = calculate_forward_returns_tradable_o2o,
         min_stocks: int = 20
@@ -234,53 +236,14 @@ def calculate_ic(
     if factor_df.empty or price_df.empty:
         raise ValueError("输入的因子或价格数据为空，无法计算IC。")
     for period in forward_periods:
-        forward_returns = returns_calculator(period=period) #
-
-        common_idx = factor_df.index.intersection(forward_returns.index)
-        common_cols = factor_df.columns.intersection(forward_returns.columns)
-
-        if len(common_idx) == 0 or len(common_cols) == 0:
-            raise ValueError("因子数据和收益数据没有重叠的日期或股票，无法计算IC。")
-
-        factor_aligned = factor_df.loc[common_idx, common_cols]
-        returns_aligned = forward_returns.loc[common_idx, common_cols]
-
-        # --- 2. 计算有效配对数并筛选日期 ---
-        paired_valid_counts = (factor_aligned.notna() & returns_aligned.notna()).sum(axis=1)
-        valid_dates = paired_valid_counts[paired_valid_counts >= min_stocks].index
-        logger.info(f"calculate_ic 满足最小股票数量要求的日期数量:{len(valid_dates)}")
-
-        if valid_dates.empty:
-            raise ValueError(f"没有任何日期满足最小股票数量({min_stocks})要求，无法计算IC。")
-
-        # --- 3. 核心计算 ---
-        ic_series = factor_aligned.loc[valid_dates].corrwith(
-            returns_aligned.loc[valid_dates],
-            axis=1,
-            method=method.lower()
-        ).rename("IC")  # 给Series命名是一个好习惯
-
-        # --- 4. 计算统计指标 (只在有效IC序列上计算) ---
-        ic_series = ic_series.dropna()   # 此时的 ic_series 是每日滚动的、有自相关的序列
-
-        # 根据收益周期 period，确定采样间隔
-        # 我们每隔 period 天，才取一个IC值，以保证两次观测之间没有重叠
-        non_overlapping_dates = get_non_overlapping_dates(period, ic_series.index.sort_values())
-
-        # 使用非重叠的日期子集，得到一个干净的、无偏的IC序列
-        ic_series_non_overlapping = ic_series.loc[non_overlapping_dates]
-
-        # --- 5. 在【干净的】IC序列上计算统计指标 ---
-        ic_series_cleaned = ic_series_non_overlapping.dropna()
-
-        if len(ic_series_cleaned) < 2:  # t检验至少需要2个样本
-            raise ValueError(f"有效IC值数量过少({len(ic_series_cleaned)})，无法计算统计指标。")
+        ic_series_cleaned = calculate_non_overlapping_ic_series(factor_df, returns_calculator,period,min_stocks)
 
         # 修正胜率计算和添加更多统计指标
         ic_mean = ic_series_cleaned.mean()
         ic_std = ic_series_cleaned.std()
         ic_ir = ic_mean / ic_std if ic_std > 0 else np.nan
         ic_t_stat, ic_p_value = stats.ttest_1samp(ic_series_cleaned, 0)
+        ic_new_t_stat, ic_new_p_value = _calculate_newey_west_tstat(ic_series_cleaned)
 
         # 胜率！。（表示正确出现的次数/总次数）
         ic_win_rate = ((ic_series_cleaned * ic_mean) > 0).mean()  # 这个就是计算胜率，简化版！ 计算的是IC值与IC均值同向的比例
@@ -288,7 +251,7 @@ def calculate_ic(
         if abs(ic_mean) > 1e-10 and np.sign(ic_t_stat) != np.sign(ic_mean):
             raise ValueError("严重错误：t统计量与IC均值方向不一致！")
         dayStr = f'{period}d'
-        ic_series_periods_dict[dayStr] = ic_series
+        ic_series_periods_dict[dayStr] = ic_series_cleaned
         stats_periods_dict[dayStr] = {
             # 'ic_series': ic_series,
             'ic_mean': ic_mean,  # >=0.02 及格 。超过0.04良好 超过0.06 超级好
@@ -298,14 +261,69 @@ def calculate_ic(
             'ic_abs_mean': ic_series_cleaned.abs().mean(),  # 不是很重要，这个值大的话，才有研究意义，能说明 在方向上有效果，而不是趋于0， 个人推荐>0.03
             'ic_t_stat': ic_t_stat,  # 大于2才有意义
             'ic_p_value': ic_p_value,  # <0.05 说明因子真的有效果
-            'ic_significant': ic_p_value < 0.05,
+             'ic_new_t_stat': ic_new_t_stat,  # 大于2才有意义
+            'ic_new_p_value': ic_new_p_value,  # <0.05 说明因子真的有效果
+            'ic_significant': ic_new_p_value < 0.05,
 
             'ic_Valid Days': len(ic_series_cleaned),
-            'ic_Total Days': len(common_idx),
-            'ic_Coverage Rate': len(ic_series_cleaned) / len(common_idx)
+            'ic_Total Days': len(ic_series_cleaned),
+            'ic_Coverage Rate': len(ic_series_cleaned) / len(ic_series_cleaned)
         }
     return ic_series_periods_dict, stats_periods_dict
 
+def calculate_non_overlapping_ic_series(
+        factor_df: pd.DataFrame,
+        returns_calculator: Callable,
+        rebalance_period: int,
+        min_stocks:int ,
+        method: str = 'spearman'
+) -> pd.Series:
+    """
+    【V3 核心函数】计算并返回一个贯穿全历史的、干净的、非重叠的IC序列。
+    这是所有后续分析的唯一数据源。
+
+    Args:
+        factor_df (pd.DataFrame): 完整的因子值DataFrame。
+        returns_calculator (Callable): 收益率计算函数。
+        rebalance_period (int): 调仓周期，也即采样间隔。
+        method (str): IC计算方法。
+
+    Returns:
+        pd.Series: 一个干净的、非重叠的IC时间序列（例如，月度IC序列）。
+    """
+    print(f"--- 正在生成周期为 {rebalance_period}d 的非重叠IC序列 ('黄金序列')... ---")
+
+    # 1. 计算与调仓周期匹配的远期收益
+    forward_returns = returns_calculator(period=rebalance_period)
+
+    # 2. 对齐数据
+    aligned_factor, aligned_returns = factor_df.align(forward_returns, join='inner', axis=0)
+
+    # 3. 确定非重叠的采样日期 （“调仓日”)
+    all_dates = aligned_factor.index.sort_values().unique()
+    non_overlapping_dates = get_non_overlapping_dates(rebalance_period, all_dates)
+
+    # 4. 【效率核心】只在这些非重叠的“调仓日”进行IC计算
+    factor_sampled = aligned_factor.loc[non_overlapping_dates]
+    returns_sampled = aligned_returns.loc[non_overlapping_dates]
+
+    # ---计算有效配对数并筛选日期 ---
+    paired_valid_counts = (factor_sampled.notna() & returns_sampled.notna()).sum(axis=1)
+    valid_dates = paired_valid_counts[paired_valid_counts >= min_stocks].index
+    logger.info(f"calculate_ic 满足最小股票数量要求的日期数量:{len(valid_dates)}")
+
+    if valid_dates.empty:
+        raise ValueError(f"没有任何日期满足最小股票数量({min_stocks})要求，无法计算IC。")
+
+    ic_series = factor_sampled.loc[valid_dates].corrwith(
+        returns_sampled.loc[valid_dates],
+        axis=1,
+        method=method.lower()
+    ).rename("IC")
+    print(f"--- '黄金IC序列' 生成完毕，共 {len(ic_series)} 个独立观测点。 ---")
+    if len(ic_series) < 2:  # t检验至少需要2个样本
+        raise ValueError(f"有效IC值数量过少({len(ic_series)})，无法计算统计指标。")
+    return ic_series
 
 def calculate_ic_decay(factor_df: pd.DataFrame,
                        returns_calculator,
@@ -987,3 +1005,76 @@ def calculate_quantile_daily_returns(
     # 8. 返回结果
     # 我们用一个固定的key，比如 '21d'，让绘图函数能找到它
     return  quantile_returns_wide.sort_index(axis=1)
+
+
+def _calculate_newey_west_tstat(ic_series: pd.Series) -> Tuple[float, float]:
+        """
+        计算 Newey-West 调整的 t-stat（针对 IC 均值的 HAC 标准误）
+        Args:
+            ic_series: pd.Series，IC 时间序列（可包含 NaN）
+        Returns:
+            (nw_t_stat, nw_p_value)：Newey-West t-stat 以及双侧 p-value
+        """
+        # 先去 NA 并计算样本数
+        ic_nonan = ic_series.dropna()
+        n = ic_nonan.size
+
+        # 样本过小时直接返回不可显著
+        if n < 10:
+            return 0.0, 1.0
+
+        try:
+            ic_values = ic_nonan.values.astype(float)
+            ic_mean = ic_values.mean()
+            residuals = ic_values - ic_mean
+
+            # Newey-West 推荐的 lag 选择（常用经验式）
+            # lag = floor(4 * (n/100)^(2/9)), 并确保 <= n-1
+            max_lag = int(math.floor(4 * (n / 100.0) ** (2.0 / 9.0)))
+            max_lag = max(1, min(max_lag, n - 1))
+
+            # 计算 long-run variance (HAC)
+            # gamma_0 = sum(residuals^2) / n
+            gamma0 = np.sum(residuals ** 2) / n
+            long_run_variance = gamma0
+
+            for lag in range(1, max_lag + 1):
+                # 自协方差 gamma_lag = sum_{t=lag}^{n-1} e_t e_{t-lag} / n
+                gamma_lag = np.sum(residuals[:-lag] * residuals[lag:]) / n
+                # Bartlett 权重
+                weight = 1.0 - lag / (max_lag + 1.0)
+                long_run_variance += 2.0 * weight * gamma_lag
+
+            # 数值保护：不允许负数（可能由数值误差导致）
+            long_run_variance = max(long_run_variance, 0.0)
+
+            # 标准误（均值的方差估计）
+            nw_se = math.sqrt(long_run_variance / n) if long_run_variance > 0 else 0.0
+
+            if nw_se <= 0.0:
+                return 0.0, 1.0
+
+            nw_t_stat = float(ic_mean / nw_se)
+
+            # p-value（双侧），这里用 t 分布 df = n-1（近似）
+            nw_p_value = float(2.0 * (1.0 - stats.t.cdf(abs(nw_t_stat), df=n - 1)))
+
+            return nw_t_stat, nw_p_value
+
+        except Exception:
+            # 作为兜底：回退到常规 t 统计量（样本均值 / (std/sqrt(n))）
+            raise ValueError("无法计算Newey-West t-stat")
+            # try:
+            #     ic_vals = ic_nonan.values.astype(float)
+            #     n2 = ic_vals.size
+            #     if n2 < 2:
+            #         return 0.0, 1.0
+            #     ic_mean = ic_vals.mean()
+            #     ic_std = ic_vals.std(ddof=1)  # 样本标准差
+            #     if ic_std <= 0.0:
+            #         return 0.0, 1.0
+            #     t_stat = float(ic_mean / (ic_std / math.sqrt(n2)))
+            #     p_value = float(2.0 * (1.0 - stats.t.cdf(abs(t_stat), df=n2 - 1)))
+            #     return t_stat, p_value
+            # except Exception:
+            #     return 0.0, 1.0

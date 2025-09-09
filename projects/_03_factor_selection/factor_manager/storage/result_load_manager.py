@@ -89,7 +89,14 @@ class ResultLoadManager:
     def get_factor_self_path(self, stock_pool_index, factor_name):
         return self.main_work_path / stock_pool_index / factor_name / self.calcu_type / self.version
 
+    def get_ic_series_by_period(self,stock_pool_index, factor_name, period_days:int):
+        factor_path = self.get_factor_self_path(stock_pool_index, factor_name)
+        df = pd.read_parquet(factor_path/f"ic_series_processed_{period_days}d.parquet")
+        #转成series
+        return df.squeeze()
+
+
 if __name__ == '__main__':
-    manager = ResultLoadManager()
+    manager = ResultLoadManager(version='20230601_20240710')
     # manager.get_factor_data('volatility_90d','000906', '20190328', '20231231')
-    manager.get_o2o_return_data('000906', '20230601', '20240710', 1)
+    manager.get_ic_series_by_period('000300', 'vwap_deviation_20d', 5)

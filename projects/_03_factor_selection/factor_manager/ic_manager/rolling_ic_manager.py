@@ -28,6 +28,7 @@ from projects._03_factor_selection.factor_manager.storage.result_load_manager im
 from projects._03_factor_selection.config_manager.config_snapshot.config_snapshot_manager import ConfigSnapshotManager
 from projects._03_factor_selection.utils.date.trade_date_utils import get_end_day_pre_n_day
 from quant_lib.config.logger_config import setup_logger
+from quant_lib.evaluation.evaluation import _calculate_newey_west_tstat
 
 logger = setup_logger(__name__)
 
@@ -193,7 +194,7 @@ class RollingICManager:
         try:
             # 1. 确定回看窗口（严格避免前视偏差）
             calc_date = pd.Timestamp(calculation_date)
-            window_end = calc_date
+            window_end = calc_date #todo 应该是以据period cal_date 减去 period
             window_start = calc_date - relativedelta(months=self.config.lookback_months) #回看12个月
 
             # 2. 获取窗口内的因子数据
@@ -214,7 +215,7 @@ class RollingICManager:
                 period_days = period
                 return_end = window_end + timedelta(days=period_days + 10)  # 留充足余量
 
-                return_data = resultLoadManager.get_return_data(
+                return_data = resultLoadManager.get_o2o_return_data(
                     stock_pool_index,
                     window_start.strftime('%Y-%m-%d'),
                     return_end.strftime('%Y-%m-%d'),
@@ -235,8 +236,8 @@ class RollingICManager:
 
 
                 # 计算IC
-                period_ic_stats = self._calculate_period_ic(
-                    factor_data, return_data, 
+                period_ic_stats = self.generate_ic_snapshot_stats(
+                    factor_data, return_data, period_days,
                     factor_name=factor_name,
                     stock_pool_index=stock_pool_index,
                     resultLoadManager=resultLoadManager
@@ -273,39 +274,43 @@ class RollingICManager:
             logger.error(f"计算IC快照失败 {factor_name}@{calculation_date}: {e}")
             return None
 
-    def _calculate_period_ic(
-        self, 
-        factor_data: pd.DataFrame, 
+    def generate_ic_snapshot_stats(
+        self,
+        factor_data: pd.DataFrame,
         return_data: pd.DataFrame,
+        period_days: int,
         factor_name: str = None,
         stock_pool_index: str = None,
         resultLoadManager = None
     ) -> Optional[Dict]:
-        """计算特定周期的IC统计"""
+        """计算特定周期的IC统计 - 修复重叠窗口偏差"""
         try:
             # 对齐因子和收益数据
             aligned_factor, aligned_return = self._align_data(factor_data, return_data)
 
             if len(aligned_factor) < self.config.min_require_observations:
                 return None
-
-            # 计算IC序列
-            ic_series = aligned_factor.corrwith(
-                aligned_return,
-                axis=1,
-                method='spearman'
-            ).rename("IC")
-            ic_series = ic_series.dropna()
-
-            if len(ic_series) == 0:#corrwith之后IC序列为空 很正常！ 当观测点要求很少，比如测试数据从0125开始，测0131 期间只有6天，如果period大于6，就会报错
-                logger.info(f"因子 {factor_name} 无有效IC统计--正常：因为没有足够的观测点！")
+            ic_series= resultLoadManager.get_ic_series_by_period(stock_pool_index, factor_name, period_days)
+            if len(ic_series) == 0:
+                logger.info(f"因子 {factor_name} 非重叠采样后无有效IC统计 ic个数为0")
                 return None
+
             # IC统计指标 - 使用EWMA动态计算 (可配置span，默认126约等于半年)
             ewma_span = getattr(self.config, 'ewma_span', 126)
-            ic_mean = ic_series.ewm(span=ewma_span).mean().iloc[-1]  # 取最新的EWMA值
-            ic_std_ewma = ic_series.ewm(span=ewma_span).std().iloc[-1]  # EWMA标准差，更平滑
-            ic_std_rolling = ic_series.std()  # 保留全样本标准差供参考
-            ic_ir = ic_mean / ic_std_ewma if ic_std_ewma > 0 else 0  # 使用EWMA标准差计算IR
+
+            # 注意：由于非重叠采样后样本数减少，需要调整EWMA参数
+            adjusted_ewma_span = min(ewma_span // period_days, len(ic_series) // 2)#月度：结果6
+            if adjusted_ewma_span < 6:
+                # 样本太少，使用传统统计方法
+                ic_mean = ic_series.mean()
+                ic_std_ewma = ic_series.std()
+                ic_std_rolling = ic_series.std()
+            else:
+                ic_mean = ic_series.ewm(span=adjusted_ewma_span).mean().iloc[-1]
+                ic_std_ewma = ic_series.ewm(span=adjusted_ewma_span).std().iloc[-1]
+                ic_std_rolling = ic_series.std()
+
+            ic_ir = ic_mean / ic_std_ewma if ic_std_ewma > 0 else 0
             # 确定长期方向，增加阈值保护
             threshold_mean = 0.001
             long_term_ic_mean = ic_series.mean()
@@ -323,10 +328,10 @@ class RollingICManager:
             # t检验 (传统)
             from scipy import stats
             t_stat, p_value = stats.ttest_1samp(ic_series, 0)
-            
+
             # 动态Newey-West T-stat (稳健版异方差调整) 不需要ewma处理 （因为他本质是全量统计
-            ic_nw_t_stat, ic_nw_p_value = self._calculate_newey_west_tstat(ic_series) #ok
-            
+            ic_nw_t_stat, ic_nw_p_value = _calculate_newey_west_tstat(ic_series) #ok
+
             #动态计算 (基于实际排名变化)
             avg_daily_rank_change_turnover_stats  = self._calculate_daily_rank_change(
                 factor_name,aligned_factor, stock_pool_index, ic_series.index, resultLoadManager
@@ -334,7 +339,7 @@ class RollingICManager:
             # 计算显著性标记和质量评估
             significance_threshold = getattr(self.config, 'significance_threshold', 1.96)
             max_turnover = getattr(self.config, 'max_monthly_turnover', 0.40)
-            
+
             is_significant_nw = abs(ic_nw_t_stat) > significance_threshold
             is_significant_traditional = abs(t_stat) > significance_threshold
 
@@ -368,79 +373,6 @@ class RollingICManager:
             raise  ValueError(f"计算周期IC失败: {e}")
     #a give
 
-    def _calculate_newey_west_tstat(self,ic_series: pd.Series) -> Tuple[float, float]:
-        """
-        计算 Newey-West 调整的 t-stat（针对 IC 均值的 HAC 标准误）
-
-        Args:
-            ic_series: pd.Series，IC 时间序列（可包含 NaN）
-
-        Returns:
-            (nw_t_stat, nw_p_value)：Newey-West t-stat 以及双侧 p-value
-        """
-        # 先去 NA 并计算样本数
-        ic_nonan = ic_series.dropna()
-        n = ic_nonan.size
-
-        # 样本过小时直接返回不可显著
-        if n < 10:
-            return 0.0, 1.0
-
-        try:
-            ic_values = ic_nonan.values.astype(float)
-            ic_mean = ic_values.mean()
-            residuals = ic_values - ic_mean
-
-            # Newey-West 推荐的 lag 选择（常用经验式）
-            # lag = floor(4 * (n/100)^(2/9)), 并确保 <= n-1
-            max_lag = int(math.floor(4 * (n / 100.0) ** (2.0 / 9.0)))
-            max_lag = max(1, min(max_lag, n - 1))
-
-            # 计算 long-run variance (HAC)
-            # gamma_0 = sum(residuals^2) / n
-            gamma0 = np.sum(residuals ** 2) / n
-            long_run_variance = gamma0
-
-            for lag in range(1, max_lag + 1):
-                # 自协方差 gamma_lag = sum_{t=lag}^{n-1} e_t e_{t-lag} / n
-                gamma_lag = np.sum(residuals[:-lag] * residuals[lag:]) / n
-                # Bartlett 权重
-                weight = 1.0 - lag / (max_lag + 1.0)
-                long_run_variance += 2.0 * weight * gamma_lag
-
-            # 数值保护：不允许负数（可能由数值误差导致）
-            long_run_variance = max(long_run_variance, 0.0)
-
-            # 标准误（均值的方差估计）
-            nw_se = math.sqrt(long_run_variance / n) if long_run_variance > 0 else 0.0
-
-            if nw_se <= 0.0:
-                return 0.0, 1.0
-
-            nw_t_stat = float(ic_mean / nw_se)
-
-            # p-value（双侧），这里用 t 分布 df = n-1（近似）
-            nw_p_value = float(2.0 * (1.0 - stats.t.cdf(abs(nw_t_stat), df=n - 1)))
-
-            return nw_t_stat, nw_p_value
-
-        except Exception:
-            # 作为兜底：回退到常规 t 统计量（样本均值 / (std/sqrt(n))）
-            raise ValueError("无法计算Newey-West t-stat")
-            # try:
-            #     ic_vals = ic_nonan.values.astype(float)
-            #     n2 = ic_vals.size
-            #     if n2 < 2:
-            #         return 0.0, 1.0
-            #     ic_mean = ic_vals.mean()
-            #     ic_std = ic_vals.std(ddof=1)  # 样本标准差
-            #     if ic_std <= 0.0:
-            #         return 0.0, 1.0
-            #     t_stat = float(ic_mean / (ic_std / math.sqrt(n2)))
-            #     p_value = float(2.0 * (1.0 - stats.t.cdf(abs(t_stat), df=n2 - 1)))
-            #     return t_stat, p_value
-            # except Exception:
-            #     return 0.0, 1.0
 
     def _calculate_quality_score(
         self, 
@@ -883,4 +815,4 @@ if __name__ == '__main__':
     #         logger.warning(f"  - {factor}: {error}")
     
     # 单个测试用法(保留原有方式)
-    run_cal_and_save_rolling_ic_by_snapshot_config_id('20250828_181420_f6baf27c', )
+    run_cal_and_save_rolling_ic_by_snapshot_config_id('20250909_125913_b5be5b49',['vwap_deviation_20d'] )
