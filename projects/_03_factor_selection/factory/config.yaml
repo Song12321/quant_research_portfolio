@@ -432,6 +432,13 @@ factor_definition:
     time_alignment: 'shift'
     cal_require_base_fields: [ 'close_adj' ]
     cal_require_base_fields_from_daily: False
+  - name: 'momentum_12_2'
+    style_category: 'momentum'
+    description: '过去12个月剔除最近2个月的累计收益率，最经典的截面动量因子，捕捉中期价格惯性。'
+    action: 'technical_calcu'
+    time_alignment: 'shift'
+    cal_require_base_fields: [ 'close_adj' ]
+    cal_require_base_fields_from_daily: False
 
   - name: 'momentum_20d'
     style_category: 'momentum'

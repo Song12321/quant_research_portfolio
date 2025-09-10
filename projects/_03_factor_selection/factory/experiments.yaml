@@ -67,8 +67,13 @@
 # === 动量 (Momentum) ===
 - factor_name: 'sharpe_momentum_60d'
   stock_pool_name: 'ZZ800'
+
 - factor_name: 'momentum_12_1'
   stock_pool_name: 'ZZ800'
+
+- factor_name: 'momentum_12_2'
+  stock_pool_name: 'ZZ800'
+
 
 - factor_name: 'momentum_20d'
   stock_pool_name: 'ZZ800'
