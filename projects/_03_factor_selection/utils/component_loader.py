@@ -60,7 +60,7 @@ class IndexComponentLoader:
 
         return pd.concat(all_dfs, ignore_index=True)
 
-    def get_members_on_date(self, target_date: pd.Timestamp, index_codes: list) -> set:#todo 思考全A 特殊处理！
+    def get_members_on_date(self, target_date: pd.Timestamp, index_codes: list) -> set:
         """
         【核心查询函数】获取一个或多个指数在指定日期的合并成分股列表。
 

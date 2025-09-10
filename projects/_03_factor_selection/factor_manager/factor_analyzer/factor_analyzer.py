@@ -1437,7 +1437,7 @@ class FactorAnalyzer:
         # 【修正】get_prepare_aligned_factor_for_analysis 现在已经返回T-1值
         final_neutral_dfs = {
             # 获取已经shift并对齐的T-1中性化因子
-            'circ_mv': self.factor_manager.get_prepare_aligned_factor_for_analysis('circ_mv',stock_pool_name,True), #天坑之前用的对数市值！导致分组单调系数异常高，害我排查很久 (初步怀疑是ffill导致破坏了数据
+            'log_circ_mv': self.factor_manager.get_prepare_aligned_factor_for_analysis('log_circ_mv',stock_pool_name,True), #天坑之前用的对数市值！导致分组单调系数异常高，害我排查很久 (初步怀疑是ffill导致破坏了数据
             'pct_chg_beta': self.factor_manager.get_prepare_aligned_factor_for_analysis(BETA_REQUEST,stock_pool_name,True),
             # 行业哑变量需要单独shift
             **{key: df.shift(1, fill_value=0) for key, df in industry_dummies_dict.items()}

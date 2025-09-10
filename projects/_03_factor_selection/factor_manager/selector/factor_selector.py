@@ -1002,7 +1002,7 @@ class FactorSelector:
 
         return summary
 
-    def run_complete_selection(self,pool_index, force_generate: bool = False) -> Tuple[
+    def run_complete_selection(self, force_generate: bool = False) -> Tuple[
         List[str], Dict[str, Any]]:
         """
         第一步：全样本“硬筛选” (Phase 1 - 看简历):
@@ -1430,7 +1430,7 @@ class FactorSelector:
             ic_mean_21d=summary_stats['ic_analysis_processed']['21d']['ic_mean'],
             ic_ir_21d=summary_stats['ic_analysis_processed']['21d']['ic_ir'],
             detail_score_21d=score,
-            top_q_turnover_dict=summary_stats['turnover'],#todo 记得后续改成：top_q_turnover
+            top_q_turnover_dict=summary_stats['top_q_turnover'],#todo 记得后续改成：top_q_turnover
             # periods_data=aggregated_periods,
             # avg_ic_with_sign=avg_ic_with_sign,
             # avg_ir_ir_with_sign=avg_ic_ir_with_sign,
@@ -1770,7 +1770,7 @@ def score_factor_from_stats_for_21d(
     ic_ir_120d = stats_120d.get('ic_ir', 0)
 
     # 适配：使用21d周期的 turnover_mean
-    avg_monthly_turnover = 0.5 # todo 注意后续重跑数据 注释取消掉 turnover_21d.get('turnover_mean', 1.0)  # 如果缺失，给一个中性偏高的惩罚值
+    avg_monthly_turnover = turnover_21d.get('turnover_mean', 1.0) # todo 注意后续重跑数据 注释取消掉 turnover_21d.get('turnover_mean', 1.0)  # 如果缺失，给一个中性偏高的惩罚值
 
     # --- 3. 计算各维度得分 ---
 
@@ -1815,7 +1815,6 @@ def score_factor_from_stats_for_21d(
 if __name__ == '__main__':
     config = SelectionConfig() #自己搭配！
     x = FactorSelector('20250906_045625_05e460ab',config)
-    print(1)
     #
     #
     TARGET_UNIVERSE = INDEX_CODES['ZZ800']  # 以中证300为主战场
@@ -1830,4 +1829,4 @@ if __name__ == '__main__':
     # )
     # get_base_passed_factors(TARGET_UNIVERSE)
 
-    x.run_complete_selection(TARGET_UNIVERSE)
+    x.run_complete_selection()

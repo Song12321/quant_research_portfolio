@@ -161,16 +161,16 @@ trans_pram =  {
     'desc': '海量测试环境 zz800股票池+必要过滤  （这是最真实的环境'
 }
 
-
-trans_pram =  {
-    'mode': 'massive_test',
-    'pools': {
-        **HS300_fast_profile
-    },
-    'period': period_one_year,
-    'evaluation': EVAL_SETTING_FAST,  # <--- 【新增】
-    'desc': 'fast临时'
-}
+#
+# trans_pram =  {
+#     'mode': 'massive_test',
+#     'pools': {
+#         **HS300_fast_profile
+#     },
+#     'period': period_one_year,
+#     'evaluation': EVAL_SETTING_FAST,  # <--- 【新增】
+#     'desc': 'fast临时'
+# }
 #
 # trans_pram = {
 #     'mode': 'fast',

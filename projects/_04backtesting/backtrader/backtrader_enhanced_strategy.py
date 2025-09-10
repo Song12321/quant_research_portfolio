@@ -496,7 +496,7 @@ class EnhancedFactorStrategy(bt.Strategy):
             daily_ranks = self.ranks.loc[pd.to_datetime(current_date)].dropna()
             #todo 测试！
             #快速颠倒一下rank
-            daily_ranks = -daily_ranks
+            # daily_ranks = -daily_ranks
 
             if daily_ranks.empty:
                 logger.warning(f"调仓日 {current_date} 无有效因子排名，目标设定为空仓。")

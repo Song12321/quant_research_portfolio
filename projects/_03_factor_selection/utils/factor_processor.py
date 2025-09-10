@@ -488,11 +488,10 @@ class FactorProcessor:
             # --- 市值因子 ---
             if 'market_cap' in factors_to_neutralize:
                 # 【命名统一】从 neutral_dfs 中寻找规模因子，名字可以是 'log_circ_mv', 'log_circ_mv' 等
-                # 我们假设传入的已经是log处理过的
-                market_cap_key = 'circ_mv'  # 与你 neutral_dfs 中定义的key保持一致
+                market_cap_key = 'log_circ_mv'
                 if market_cap_key not in neutral_dfs:
                     raise ValueError(f"neutral_dfs 中缺少市值因子 '{market_cap_key}'。")
-                mv_series = neutral_dfs[market_cap_key].loc[date].rename('circ_mv')
+                mv_series = neutral_dfs[market_cap_key].loc[date].rename('log_circ_mv')
                 X_df_parts.append(mv_series)
 
             # --- 行业因子 ---
