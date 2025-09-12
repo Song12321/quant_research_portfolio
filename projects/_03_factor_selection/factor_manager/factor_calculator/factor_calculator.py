@@ -142,29 +142,27 @@ class FactorCalculator:
         # --- 步骤一：获取分子和分母 ---
         # 调用我们刚刚实现的两个生产级函数
         net_profit_ttm_df = self._calculate_net_profit_ttm()
-        total_equity_df = self._calculate_total_equity()
+        quarterly_equity_df = self._calculate_total_equity()
 
         # --- 步骤二：对齐数据 ---
         # align确保两个DataFrame的索引和列完全一致，避免错位计算
         # join='inner'会取两个因子都存在的股票和日期，是最安全的方式
-        profit_aligned, equity_aligned = net_profit_ttm_df.align(total_equity_df, join='inner', axis=None)
-
+        profit_aligned, equity_aligned = net_profit_ttm_df.align(quarterly_equity_df, join='inner', axis=None)
+        equity_lagged_4q = equity_aligned.shift(4)
+        # 平均净资产 = (期初 + 期末) / 2
+        average_equity = (equity_aligned + equity_lagged_4q) / 2
         # --- 步骤三：风险控制与计算 ---
         # 核心风控：股东权益可能为负（公司处于资不抵债状态）。
         # 在这种情况下，ROE的计算没有经济意义，且会导致计算错误。
         # 我们将分母小于等于0的地方替换为NaN，这样除法结果也会是NaN。
         # 例如，2021年-2023年，一些陷入困境的地产公司净资产可能为负，其ROE必须被视为无效值。
-        equity_aligned_safe = equity_aligned.where(equity_aligned > 0, np.nan)
-
-        print("1. 计算 ROE TTM，并对分母进行风险控制(>0)...")
-        roe_ttm_df = profit_aligned / equity_aligned_safe
+        average_equity_safe = average_equity.where(average_equity > 0, np.nan)
+        roe_ttm_df = profit_aligned / average_equity_safe
 
         # --- 步骤四：后处理 ---
         # 尽管我们处理了分母为0的情况，但仍可能因浮点数问题产生无穷大值。
         # 统一替换为NaN，确保因子数据的干净。
         roe_ttm_df=roe_ttm_df.replace([np.inf, -np.inf], np.nan, inplace=False)
-
-        print("--- 最终因子: roe_ttm 计算完成 ---")
         return roe_ttm_df
 
 
@@ -237,8 +235,6 @@ class FactorCalculator:
         """
         计算滚动12个月营业总收入的同比增长率(TTM YoY Growth)。
         """
-        logger.info("    > 正在计算因子: revenue_growth_ttm...")
-
         # 同样调用通用的TTM增长率计算引擎
         return self._calculate_financial_ttm_growth_factor(
             factor_name='revenue_growth_ttm',
@@ -377,8 +373,14 @@ class FactorCalculator:
         momentum_df = close_df.shift(21*2) / close_df.shift(252) - 1
         return momentum_df
 
-
-
+    def _calculate_momentum_1d(self) -> pd.DataFrame:
+                return self.get_momentum_n_d(1)
+    def _calculate_momentum_5d(self) -> pd.DataFrame:
+        return self.get_momentum_n_d(5)
+    def get_momentum_n_d(self,n_day) -> pd.DataFrame:
+        close_hfq = self.factor_manager.get_raw_factor('close_hfq').copy(deep=True)
+        mom_nd = close_hfq.pct_change(periods=n_day)
+        return mom_nd
     def _calculate_momentum_20d(self) -> pd.DataFrame:
         """
         计算20日动量/收益率。
@@ -448,6 +450,64 @@ class FactorCalculator:
 
     def _calculate_volatility_40d(self) -> pd.DataFrame:
         return self._create_rolling_volatility_factor(window=40, min_periods=20)
+
+
+    # #换手率因子
+    # def _calculate_turnover_20d_std(self) -> pd.DataFrame:
+    #
+
+    def _calculate_turnover_42d_std_252d_std_ratio(self) -> pd.DataFrame:
+        """
+        【新增】计算换手率波动性的变化率因子。
+        金融逻辑:
+        衡量个股最近2个月的日换手率波动性，相对于其过去2年的“正常”波动水平的变化。
+        一个远大于0的值，可能表示该股票近期交易行为剧变，风险或关注度急剧增加。
+        一个接近0或为负的值，表示近期交易行为相对平稳或萎缩。
+        计算公式:
+        (最近2个月换手率标准差 / 最近2年换手率标准差) - 1
+        """
+        logger.info("    > 正在计算因子: turnover_std_ratio (换手率波动率变化)...")
+
+        # --- 1. 获取原材料：日换手率 ---
+        # 我们使用原始的、未经填充的换手率，因为rolling计算会自动处理NaN，
+        # 填充为0反而会人为降低波动率的计算结果。
+        turnover_df = self.factor_manager.get_raw_factor('turnover_rate').copy()
+
+        # --- 2. 定义时间窗口 (交易日) ---
+        short_term_window = 42  # 约2个月
+        long_term_window = 504  # 约2年
+
+        # 设定计算所需的最小样本数，通常为窗口的70%-80%
+        min_periods_short = int(short_term_window * 0.8)
+        min_periods_long = int(long_term_window * 0.8)
+
+        # --- 3. 计算短期波动率（分子） ---
+        std_short_term = turnover_df.rolling(
+            window=short_term_window,
+            min_periods=min_periods_short
+        ).std()
+
+        # --- 4. 计算长期波动率（分母） ---
+        std_long_term = turnover_df.rolling(
+            window=long_term_window,
+            min_periods=min_periods_long
+        ).std()
+
+        # --- 5. 风险控制与最终计算 ---
+        # a) 对齐数据，确保计算的准确性
+        std_short_aligned, std_long_aligned = std_short_term.align(std_long_term, join='inner', axis=None)
+
+        # b) 【核心风控】分母（长期波动率）可能为0或极小，必须处理以防除0错误
+        # 我们将小于1e-6的值视同为0，并替换为NaN，避免产生无穷大(inf)的因子值
+        std_long_safe = std_long_aligned.where(std_long_aligned > 1e-6)
+
+        # c) 执行最终计算
+        turnover_std_ratio = (std_short_aligned / std_long_safe) - 1
+
+        # d) 再次清理可能产生的无穷大值
+        final_factor = turnover_std_ratio.replace([np.inf, -np.inf], np.nan)
+        return final_factor
+
     # === 流动性 (Liquidity) ===
     def _calculate_rolling_mean_turnover_rate(self, window: int, min_periods: int) -> pd.DataFrame:
         """【私有引擎】计算滚动平均换手率（以小数形式）。"""
@@ -727,6 +787,124 @@ class FactorCalculator:
             calculation_logic_func=self._earnings_stability_logic
         )
 
+    #质量类因子（---杠杆因子
+
+    def _calculate_debt_252d_ratio(self) -> pd.DataFrame:
+        """
+        计算财务杠杆变动率因子 (LVGI - Leverage Growth Index)。
+        因子类别: 质量类因子
+        金融逻辑:
+        衡量公司资产负债率的年度变化趋势。一个增长的比率（>1）可能表示
+        公司正在增加杠杆，财务风险上升；一个降低的比率（<1）则可能表示
+        公司正在去杠杆，财务状况更稳健。
+        计算公式:
+        本期(年报)资产负债率 / 上期(年报)资产负债率
+        """
+
+        # --- 1. 获取基础原材料：每日更新的资产负债率因子 ---
+        debt_to_assets_df = self.factor_manager.get_raw_factor('debt_to_assets').copy()
+
+        # --- 2. 获取上一期（年报）的数据 ---
+        debt_to_assets_last_year = debt_to_assets_df.shift(252)
+
+        # --- 3. 风险控制与最终计算 ---
+        # a) 对齐数据，确保计算的准确性
+        current_leverage, prior_leverage = debt_to_assets_df.align(
+            debt_to_assets_last_year, join='inner', axis=None
+        )
+        # b) 【核心风控】分母（上一期资产负债率）可能为0或极小，必须处理以防除0错误。
+        # 我们将小于1e-6的值视同为0，并替换为NaN，避免产生无穷大(inf)的因子值。
+        prior_leverage_safe = prior_leverage.where(prior_leverage > 1e-6)
+
+        # c) 执行最终计算
+        leverage_change_ratio = current_leverage / prior_leverage_safe
+        # d) 再次清理可能产生的无穷大值
+        final_factor = leverage_change_ratio.replace([np.inf, -np.inf], np.nan)
+        return final_factor
+    #量价因子
+    def _calculate_single_day_vpt(self) -> pd.DataFrame:
+        """
+        【新增】计算单日价量趋势因子 (Volume-Price Trend)。
+        金融逻辑:
+        结合价格变动方向和成交量大小，衡量资金推动价格上涨或下跌的力度。
+        正值代表放量上涨，负值代表放量下跌。
+        计算公式:
+        （今日收盘价 - 昨日收盘价）/ 昨日收盘价 * 当日成交量
+        等价于： pct_chg * vol_hfq
+        """
+        logger.info("    > 正在计算因子: single_day_vpt...")
+
+        # --- 1. 获取基础原材料 ---
+        # a) 每日涨跌幅 (已经包含了价格变动信息)
+        pct_chg = self.factor_manager.get_raw_factor('pct_chg').copy()
+
+        # b) 后复权成交量 (消除送转股等事件对成交量的影响)
+        vol_hfq = self.factor_manager.get_raw_factor('vol_hfq').copy()
+
+        # --- 2. 对齐数据 ---
+        # 使用 align 确保两个DataFrame在计算前具有完全相同的索引和列
+        pct_chg_aligned, vol_hfq_aligned = pct_chg.align(vol_hfq, join='inner', axis=None)
+
+        # --- 3. 核心计算 ---
+        raw_vpt_factor = pct_chg_aligned * vol_hfq_aligned
+
+        return raw_vpt_factor
+    #复合类因子
+    # def _calculate_mom5d_mom1d_vol_wei_3_3_4_combo(self) -> pd.DataFrame:
+    #     """
+    #     【新增】计算一个由短期动量和成交量加权合成的复合因子。
+    #
+    #     金融逻辑:
+    #     综合考量价格的短期趋势强度（1日和5日动量）和市场的参与热度（成交量），
+    #     旨在捕捉那些有资金参与的、正在启动的短期趋势。
+    #
+    #     计算公式:
+    #     - 0.3 * Z-Score(5日收益率)
+    #     - 0.3 * Z-Score(1日收益率)
+    #     - 0.4 * Z-Score(后复权成交量)
+    #     """
+    #     """
+    #      【V2 修正版】计算一个由短期动量和成交量加权合成的复合因子。
+    #
+    #      核心修正：
+    #      使用 reindex 方法来稳健地对齐三个及以上的DataFrame。
+    #      """
+    #
+    #     # --- 1. 获取所有基础原材料 ---
+    #     close_hfq = self.factor_manager.get_raw_factor('close_hfq').copy()
+    #     vol_hfq = self.factor_manager.get_raw_factor('vol_hfq').copy()
+    #
+    #     # --- 2. 计算三大核心组件 ---
+    #     mom_5d = close_hfq.pct_change(periods=5)
+    #     mom_1d = close_hfq.pct_change(periods=1)
+    #     volume = vol_hfq
+    #
+    #     # --- 3. 对所有组件进行截面标准化 (Z-Score) ---
+    #     z_mom_5d = cross_sectional_zscore(mom_5d)
+    #     z_mom_1d = cross_sectional_zscore(mom_1d)
+    #     z_volume = cross_sectional_zscore(volume)
+    #
+    #     # a) 找到所有因子共有的日期索引
+    #     common_index = z_mom_5d.index.intersection(z_mom_1d.index).intersection(z_volume.index)
+    #
+    #     # b) 找到所有因子共有的股票代码列
+    #     common_columns = z_mom_5d.columns.intersection(z_mom_1d.columns).intersection(z_volume.columns)
+    #
+    #     # c) 将所有DataFrame规整到这个共同的形状上
+    #     z_mom_5d_aligned = z_mom_5d.reindex(index=common_index, columns=common_columns)
+    #     z_mom_1d_aligned = z_mom_1d.reindex(index=common_index, columns=common_columns)
+    #     z_volume_aligned = z_volume.reindex(index=common_index, columns=common_columns)
+    #
+    #     # --- 5. 按指定权重进行加权合成 ---
+    #     weights = {'mom5d': 0.3, 'mom1d': 0.3, 'vol': 0.4}
+    #     composite_factor = (
+    #             weights['mom5d'] * z_mom_5d_aligned +
+    #             weights['mom1d'] * z_mom_1d_aligned +
+    #             weights['vol'] * z_volume_aligned
+    #     )
+    #
+    #     return composite_factor
+
         # === 新增情绪类因子 (Sentiment) ===
     ##
     # 滚动技术指标类 (价格材料 必须喂给它是连续的
@@ -867,6 +1045,9 @@ class FactorCalculator:
         fa = IndustryMomentumFactor(pointInTimeIndustryMap)
         ret = fa.compute(self.factor_manager.data_manager._prebuffer_trading_dates, 'l1_code')
         return ret
+
+
+
     #伞兵函数 共一个将使用 没啥复用意义，只是清晰而已，
 
 
@@ -1577,6 +1758,7 @@ class FactorCalculator:
         )
 
     # === 动量类 (Momentum) 新增 ===
+
     #ok
     def _calculate_sharpe_momentum_60d(self) -> pd.DataFrame:
         """
@@ -1744,3 +1926,15 @@ def calculate_rolling_beta_pure(
     beta_df = rolling_cov.div(rolling_var, axis=0)
 
     return beta_df
+
+
+#工具类函数！
+    #工具类函数
+def cross_sectional_zscore(df: pd.DataFrame) -> pd.DataFrame:
+    """对DataFrame进行截面标准化(Z-Score)"""
+    return (df - df.mean(axis=1, skipna=True).values.reshape(-1, 1)) / df.std(axis=1, skipna=True).values.reshape(
+        -1, 1)
+
+if __name__ == '__main__':
+    x = [1,1,1,2,2,2,3,3,3]
+    x.rolling(window=20).std()

@@ -6,153 +6,155 @@
 # ------------------------------------------------------------------------------
 
 # === 进阶/复合因子 (Advanced / Composite) ===
-- factor_name: 'operating_accruals'
-  stock_pool_name: 'ZZ800' # 中证800
-
-- factor_name: 'earnings_stability'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'pead'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'quality_momentum'
-  stock_pool_name: 'ZZ800'
-
-# === 情绪/技术类因子 (Sentiment / Technical) ===
-- factor_name: 'rsi'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'cci'
-  stock_pool_name: 'ZZ800'
-
-# === 规模 (Size) ===
-- factor_name: 'log_total_mv'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'log_circ_mv'
-  stock_pool_name: 'ZZ800'
-
-# === 价值 (Value) ===
-- factor_name: 'bm_ratio'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'ep_ratio'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'sp_ratio'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'cfp_ratio'
-  stock_pool_name: 'ZZ800'
-
-# === 质量 (Quality) ===
-- factor_name: 'roe_change_q'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'roe_ttm'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'gross_margin_ttm'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'debt_to_assets'
-  stock_pool_name: 'ZZ800'
-
-# === 成长 (Growth) ===
-- factor_name: 'net_profit_growth_yoy'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'total_revenue_growth_yoy'
-  stock_pool_name: 'ZZ800'
-
-# === 动量 (Momentum) ===
-- factor_name: 'sharpe_momentum_60d'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'momentum_12_1'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'momentum_12_2'
-  stock_pool_name: 'ZZ800'
-
-
-- factor_name: 'momentum_20d'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'momentum_120d'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'momentum_pct_60d'
-  stock_pool_name: 'ZZ800'
-## === 风险 (Risk / Volatility) ===
+#- factor_name: 'operating_accruals'
+#  stock_pool_name: 'ZZ800' # 中证800
+#
+#- factor_name: 'earnings_stability'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'pead'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'quality_momentum'
+#  stock_pool_name: 'ZZ800'
+#
+## === 情绪/技术类因子 (Sentiment / Technical) ===
+#- factor_name: 'rsi'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'cci'
+#  stock_pool_name: 'ZZ800'
+#
+## === 规模 (Size) ===
+#- factor_name: 'log_total_mv'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'log_circ_mv'
+#  stock_pool_name: 'ZZ800'
+#
+## === 价值 (Value) ===
+#- factor_name: 'bm_ratio'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'ep_ratio'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'sp_ratio'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'cfp_ratio'
+#  stock_pool_name: 'ZZ800'
+#
+## === 质量 (Quality) ===
+#- factor_name: 'roe_change_q'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'roe_ttm'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'gross_margin_ttm'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'debt_to_assets'
+#  stock_pool_name: 'ZZ800'
+#
+## === 成长 (Growth) ===
+#- factor_name: 'net_profit_growth_yoy'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'total_revenue_growth_yoy'
+#  stock_pool_name: 'ZZ800'
+#
+## === 动量 (Momentum) ===
+#- factor_name: 'sharpe_momentum_60d'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'momentum_12_1'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'momentum_12_2'
+#  stock_pool_name: 'ZZ800'
+#
+#
+#- factor_name: 'momentum_20d'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'momentum_120d'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'momentum_pct_60d'
+#  stock_pool_name: 'ZZ800'
+### === 风险 (Risk / Volatility) ===
+##- factor_name: 'beta'
+##  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'volatility_120d'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'volatility_90d'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'volatility_40d'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'reversal_21d'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'reversal_5d'
+#  stock_pool_name: 'ZZ800'
+##
+## === 流动性 (Liquidity) ===
+#- factor_name: 'turnover_rate_90d_mean'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'ln_turnover_value_90d'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'turnover_t1_div_t20d_avg'
+#  stock_pool_name: 'ZZ800'
+#
+#
+#- factor_name: 'turnover_rate_monthly_mean'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'amihud_liquidity'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'value_composite'
+#  stock_pool_name: 'ZZ800'
+#
+##   === market_microstructure 市场微观结构类===
+#- factor_name: 'vwap_deviation_20d'
+#  stock_pool_name: 'ZZ800'
+#
+#
+##行业
+#- factor_name: 'sw_l1_momentum_21d'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'value_composite'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'turnover_rate'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'roa_ttm'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'roe_change_q'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'vwap_deviation_20d'
+#  stock_pool_name: 'ZZ800'
+#- factor_name: 'large_trade_ratio_10d'
+#  stock_pool_name: 'ZZ800'
+#
 #- factor_name: 'beta'
 #  stock_pool_name: 'ZZ800'
-
-- factor_name: 'volatility_120d'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'volatility_90d'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'volatility_40d'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'reversal_21d'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'reversal_5d'
-  stock_pool_name: 'ZZ800'
+#- factor_name: 'net_profit_growth_ttm'
+#  stock_pool_name: 'ZZ800'
 #
-# === 流动性 (Liquidity) ===
-- factor_name: 'turnover_rate_90d_mean'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'ln_turnover_value_90d'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'turnover_t1_div_t20d_avg'
-  stock_pool_name: 'ZZ800'
-
-
-- factor_name: 'turnover_rate_monthly_mean'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'amihud_liquidity'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'value_composite'
-  stock_pool_name: 'ZZ800'
-
-#   === market_microstructure 市场微观结构类===
-- factor_name: 'vwap_deviation_20d'
-  stock_pool_name: 'ZZ800'
-
-
-#行业
-- factor_name: 'sw_l1_momentum_21d'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'value_composite'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'turnover_rate'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'roa_ttm'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'roe_change_q'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'vwap_deviation_20d'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'large_trade_ratio_10d'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'beta'
-  stock_pool_name: 'ZZ800'
-- factor_name: 'net_profit_growth_ttm'
-  stock_pool_name: 'ZZ800'
-
-- factor_name: 'revenue_growth_ttm'
-  stock_pool_name: 'ZZ800'
+#- factor_name: 'revenue_growth_ttm'
+#  stock_pool_name: 'ZZ800'
 
 
 #--------------------------------------------------------------------------------------- 模板以上
 ##临时测试
-#- factor_name: 'turnover_rate'
-#  stock_pool_name: 'HS300'
+
+- factor_name: 'roe_ttm'
+  stock_pool_name: 'ZZ800'
+
 #todo 有问题
 #- factor_name: 'vwap_deviation_20d'
 #  stock_pool_name: 'HS300'

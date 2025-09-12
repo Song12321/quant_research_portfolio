@@ -8,7 +8,7 @@ Backtrader实际使用演示
 import sys
 from pathlib import Path
 from typing import Dict
-
+import  numpy as np
 import pandas as pd
 
 # 添加项目路径
@@ -70,15 +70,15 @@ def load_data_for_backtrader_demo(factor_names):
         raise
 
 
-def load_price_dfs():
+def load_price_dfs(start_date, end_date):
+        v = f'{start_date}_{end_date}'
         result_manager = ResultLoadManager(
             calcu_return_type='o2o',
-            version='20190328_20231231',
+            version=v,
             is_raw_factor=False
         )
         stock_pool_index = '000906'
-        start_date = '2019-03-28'
-        end_date = '2023-12-31'
+
         # start_date = '2023-01-01'
         # end_date = '2023-12-31'
 
@@ -100,35 +100,101 @@ def cross_sectional_zscore(df: pd.DataFrame) -> pd.DataFrame:
     return (df - df.mean(axis=1, skipna=True).values.reshape(-1,1)) / df.std(axis=1, skipna=True).values.reshape(-1,1)
 
 
-def load_composite_factor():
+def load_composite_factor(start_date, end_date):
         stock_pool_index = '000906'
+        v = f'{start_date}_{end_date}'
 
         result_manager = ResultLoadManager(
             calcu_return_type='o2o',
-            version='20190328_20231231',
+            version=v,
             pool_index=stock_pool_index,
             is_raw_factor=False
         )
-        start_date = '2019-03-28'
-        end_date = '2023-12-31'
-        cfp_ratio = result_manager.get_factor_data('cfp_ratio')
-        turnover_rate_90d_mean  = result_manager.get_factor_data('turnover_rate_90d_mean') * -1
-        volatility_90d  = result_manager.get_factor_data('volatility_90d') * -1
-        ln_turnover_value_90d  = result_manager.get_factor_data('ln_turnover_value_90d') * -1
-        operating_accruals  = result_manager.get_factor_data('operating_accruals') * -1
+        # start_date = '2019-03-28'
+        # end_date = '2023-12-31'
+        # cfp_ratio = result_manager.get_factor_data('cfp_ratio')
+        # single_day_vpt  = result_manager.get_factor_data('single_day_vpt') * -1
+        # turnover_rate_90d_mean  = result_manager.get_factor_data('turnover_rate_90d_mean') * -1
+        # volatility_90d  = result_manager.get_factor_data('volatility_90d') * -1
+        # ln_turnover_value_90d  = result_manager.get_factor_data('ln_turnover_value_90d') * -1
+        # operating_accruals  = result_manager.get_factor_data('operating_accruals') * -1
+        #
+        # # 标准化
+        # z_cfp = cross_sectional_zscore(cfp_ratio)
+        # z_turnover_rate_90d_mean = cross_sectional_zscore(turnover_rate_90d_mean)
+        # z_volatility_90d = cross_sectional_zscore(volatility_90d)
+        # z_ln_turnover_value_90d = cross_sectional_zscore(ln_turnover_value_90d)
+        # z_operating_accruals = cross_sectional_zscore(operating_accruals)
+        #
+        #
+        # # 合成
+        # composite_factor = (0.4*z_cfp + 0.4*z_ln_turnover_value_90d + 0.2*z_operating_accruals) / 1
+        #
+        # return {'factor_name':single_day_vpt}
+        single_day_vpt  = result_manager.get_factor_data('roe_ttm') * 1
+        #
+        return {'factor_name':single_day_vpt}
 
-        # 标准化
-        z_cfp = cross_sectional_zscore(cfp_ratio)
-        z_turnover_rate_90d_mean = cross_sectional_zscore(turnover_rate_90d_mean)
-        z_volatility_90d = cross_sectional_zscore(volatility_90d)
-        z_ln_turnover_value_90d = cross_sectional_zscore(ln_turnover_value_90d)
-        z_operating_accruals = cross_sectional_zscore(operating_accruals)
 
+def generate_mock_data_for_verification():
+    """
+    生成一套用于回测验证的、结果完全可预测的模拟数据。
+    包含价格DataFrame和T日对齐的因子排名DataFrame。
+    """
+    # 1. 定义时间和股票池
+    dates = pd.to_datetime(['2020-01-01', '2020-01-02', '2020-01-03', '2020-01-06'])  # 4个交易日
+    stocks = ['STOCK_A', 'STOCK_B', 'STOCK_C', 'STOCK_D']
 
-        # 合成
-        composite_factor = (0.4*z_cfp + 0.4*z_ln_turnover_value_90d + 0.2*z_operating_accruals) / 1
+    # 2. 设计价格“剧本” (使用开盘价和收盘价，更贴近真实)
+    price_data = {
+        # A: 优等生, 持续上涨
+        'STOCK_A': {'open': [100, 101, 102, 103], 'close': [101, 102, 103, 104]},
+        # B: 次等生, 平稳
+        'STOCK_B': {'open': [110, 110, 110, 110], 'close': [110, 110, 110, 110]},
+        # C: 中等生, 微跌
+        'STOCK_C': {'open': [120, 119, 118, 117], 'close': [119, 118, 117, 116]},
+        # D: 差等生, 持续下跌
+        'STOCK_D': {'open': [130, 128, 126, 124], 'close': [128, 126, 124, 122]},
+    }
+    # 创建 Open 和 Close 的 DataFrame
+    open_df = pd.DataFrame({k: v['open'] for k, v in price_data.items()}, index=dates)
+    close_df = pd.DataFrame({k: v['close'] for k, v in price_data.items()}, index=dates)
 
-        return {'factor_name':composite_factor}
+    # 3. 设计因子“剧本” (T日对齐的排名)
+    # T日收盘后的排名，决定T+1日的交易
+    factor_ranks_data = {
+        # 1月1日收盘后，A和B排名最高
+        '2020-01-01': {'STOCK_A': 4, 'STOCK_B': 3, 'STOCK_C': 2, 'STOCK_D': 1},
+        # 1月2日收盘后，排名反转，C和D最高
+        '2020-01-02': {'STOCK_A': 2, 'STOCK_B': 1, 'STOCK_C': 4, 'STOCK_D': 3},
+        # 1月3日收盘后，维持 C, D 最高
+        '2020-01-03': {'STOCK_A': 1, 'STOCK_B': 2, 'STOCK_C': 4, 'STOCK_D': 3},
+        # 1月6日收盘后 (数据最后一天)
+        '2020-01-06': {'STOCK_A': 1, 'STOCK_B': 2, 'STOCK_C': 4, 'STOCK_D': 3},
+    }
+    ranks_df = pd.DataFrame(factor_ranks_data).T
+    ranks_df.index = pd.to_datetime(ranks_df.index)
+
+    # 4. 为了让 backtrader 运行，我们需要一个OHLCV格式的DF
+    # 我们可以简单地让 H=max(O,C), L=min(O,C), V=10000
+    price_dfs_for_bt = {}
+    for stock in stocks:
+        df = pd.DataFrame({
+            'open': open_df[stock],
+            'high': np.maximum(open_df[stock], close_df[stock]),
+            'low': np.minimum(open_df[stock], close_df[stock]),
+            'close': close_df[stock],
+            'volume': 1000000,
+            'openinterest': 0
+        })
+        price_dfs_for_bt[stock] = df
+
+    return  {
+            'close': open_df,
+            'open': open_df,
+            'high': open_df,
+            'low': open_df,
+        }, {'fa':ranks_df}
 
 
 ##年volatility_40d策略表现报告 化收益率 (Annualized Return): 4.78% -1方向
@@ -138,6 +204,21 @@ def load_composite_factor():
 # 夏普比率 (Sharpe Ratio): 0.6585558761463172
 # 最大回撤 (Max Drawdown): 15.72%
 # 最长回撤期 (Longest Drawdown Period): 345 天#
+def mock_price_dfs(s, e):
+    # 创建测试数据
+    dates = pd.date_range('2020-01-01', periods=3, freq='B')
+    stocks = ['STOCK_A', 'STOCK_B', 'STOCK_C', 'STOCK_D',]
+
+    # 价格数据
+    np.random.seed(42)
+    price_data = {}
+    for i, stock in enumerate(stocks):
+        returns =0.05# np.random.normal(0.0005, 0.015, len(dates))
+        prices = 100 * (1 + i * 0.05) * np.exp(np.cumsum(returns))
+        price_data[stock] = prices
+    price_df = pd.DataFrame(price_data, index=dates)
+
+
 def demo_basic_backtrader():
     """基础Backtrader演示 - 直接替代原有示例"""
 
@@ -148,19 +229,22 @@ def demo_basic_backtrader():
     reverse_ = ['turnover_rate_monthly_mean']
     # price_dfs, factor_dict = load_data_for_backtrader_demo( ['volatility_40d'])
     # price_dfs, factor_dict = load_data_for_backtrader_demo(['cfp_ratio'])
-    price_dfs = load_price_dfs()
-    fa = load_composite_factor()
+    s = '20190328'
+    e=  '20231231'
+    price_dfs = load_price_dfs(s,e)
+    fa = load_composite_factor(s,e)
+    # price_dfs,fa = generate_mock_data_for_verification()
 
     # 2. 使用原有配置（完全兼容）
     config = BacktestConfig(
-        top_quantile=0.10,  # 做多前30%
+        top_quantile=0.3,  # 做多前30%
         rebalancing_freq='21d',  # 月度调仓
-        commission_rate=0.0001,  # 万1佣金
-        slippage_rate=0.001,  # 千1滑点
-        stamp_duty=0.0005,  # 千0.5印花税
+        commission_rate=0.0001,  # 万n佣金
+        slippage_rate=0.0005,  # 滑点
+        stamp_duty=0.001,  # 千1印花税
         initial_cash=10000000,  # 初始资金
-        max_positions=30,  # 最多持
-        max_holding_days=21
+        max_positions=20,  # 最多持
+        max_holding_days=1000
     )
     # 3. 一键运行Backtrader回测
     results = one_click_migration(price_dfs, fa, config)

@@ -79,7 +79,9 @@ class FactorSynthesizer:
     def synthesize_composite_factor(self,
                                     composite_factor_name: str,
                                     stock_pool_index_name: str,
-                                    sub_factor_names: List[str]) -> pd.DataFrame:
+                                    sub_factor_names: List[str],
+                                    wights:List[float],
+                                    ) -> pd.DataFrame:
         """
         将一组细分因子合成为一个复合因子。
 
@@ -108,8 +110,7 @@ class FactorSynthesizer:
             raise ValueError("没有任何细分因子被成功处理，无法合成。")
 
         # 使用 reduce 和 add 来优雅地合并所有DataFrame
-        from functools import reduce
-        composite_factor_df = reduce(lambda left, right: left.add(right, fill_value=0), processed_factors)
+        composite_factor_df = self.do_composite_by_config_weights(processed_factors,wights)
 
         # 对最终结果再做一次标准化，使其成为一个标准的风格因子暴露 全市场
         ##
@@ -135,7 +136,8 @@ class FactorSynthesizer:
         """
         # 获取子因子列表
         sub_factor_names = self.factor_manager.data_manager.get_cal_require_base_fields_for_composite(factor_name)
-        composite_df = self.synthesize_composite_factor(factor_name, stock_pool_index_name, sub_factor_names)
+        weights = self.factor_manager.data_manager.get_per_weights_for_composite(factor_name)
+        composite_df = self.synthesize_composite_factor(factor_name, stock_pool_index_name, sub_factor_names,weights)
         return composite_df
 #被替代
     def do_composite_wights_by_rolling_ic(self, factor_name, stock_pool_index, weighting_config=None, snap_config_id: str = None):
@@ -190,3 +192,29 @@ class FactorSynthesizer:
         else:
             composite_df = self.do_composite_eq_wights(factor_name, stock_pool_index_name=stock_pool_index_name)
         return composite_df
+
+    def do_composite_by_config_weights(self, processed_factors, weights=None):
+        """
+        根据给定的权重组合因子
+        processed_factors: list[pd.Series 或 pd.DataFrame]
+        weights: list[float] 或 None
+        """
+        from functools import reduce
+        import numpy as np
+        n = len(processed_factors)
+        if weights is None:
+            return reduce(lambda left, right: left.add(right, fill_value=0), processed_factors)
+        else:
+            if len(weights) != n:
+                raise ValueError(f"weights 长度必须等于 processed_factors 长度 (got {len(weights)}, expected {n})")
+
+            weights = np.array(weights, dtype=float)
+            weights = weights / weights.sum()
+
+            # 加权求和
+            composite = sum(w * f for w, f in zip(weights, processed_factors))
+            return composite
+
+
+
+

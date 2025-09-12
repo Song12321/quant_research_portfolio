@@ -12,6 +12,7 @@
 - 完全兼容原有测试流程
 - 自动化配置管理，无需手动干预
 """
+import alphalens as al
 
 import traceback
 from pathlib import Path

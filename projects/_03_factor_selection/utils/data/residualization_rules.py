@@ -153,7 +153,7 @@ def _need_residualization_by_category(style_category: str, factor_name: str) -> 
         return _is_high_autocorr_momentum_factor(factor_name)
     elif category == 'risk':
         return _is_high_autocorr_risk_factor(factor_name)
-    elif category in ['value', 'quality', 'growth', 'size','return','event','market_microstructure','money_flow','sw_industry']:
+    elif category in ['value', 'quality', 'growth', 'size','return','event','market_microstructure','money_flow','sw_industry','hodgepodge_combo','vol','volume_price']:
         # 对于明确不需要的类别，直接返回False
         return False
     else:
@@ -176,7 +176,8 @@ def _is_high_autocorr_liquidity_factor(factor_name: str) -> bool:
         #亲测下面残差后表现极差！
         'turnover_rate_90d_mean', # 如果残差：-0.05315123787885707 --->-0.01433680051466378  10d     如果不做残差化直接中性化：-0.04663723878250377
         'turnover_rate_monthly_mean',#如果残差：-0.031346797401695686  -0.006203743313116326
-        'ln_turnover_value_90d'#如果残差：-0.028998347667171864   -0.018800373908799514
+        'ln_turnover_value_90d',#如果残差：-0.028998347667171864   -0.018800373908799514
+        'turnover_42d_std_252d_std_ratio',
     }
     
     if factor_name in high_autocorr_liquidity:
@@ -272,6 +273,9 @@ def _is_high_autocorr_momentum_factor(factor_name: str) -> bool:
         'reversal_5d',
         'reversal_21d',
         'momentum_12_1',
+        'momentum_1d',
+        'momentum_5d',
+        'momentum_12_2',
         'sharpe_momentum_60d',
         'quality_momentum', # 组合因子，默认不处理
     }

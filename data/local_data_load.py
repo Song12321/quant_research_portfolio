@@ -76,7 +76,16 @@ def load_all_stock_codes():
     df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'stock_basic.parquet')
     return list(df['ts_code'].unique())
 
+def load_price_hfq(price_type,start,end):
+    df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily_hfq')
+    df_pivot = df.pivot(index='trade_date', columns='ts_code', values=price_type)
+    df_pivot.index = pd.to_datetime(df_pivot.index)
+    #时间
+    if start is not None and end is not None:
+        df_pivot = df_pivot[(df_pivot.index >= pd.to_datetime(start)) & (df_pivot.index <= pd.to_datetime(end))]
+    return df_pivot
 
+    return df_pivot
 def load_cashflow_df():
     df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'cashflow.parquet')
     df['ann_date'] = pd.to_datetime(df['ann_date'])
@@ -185,5 +194,5 @@ def get_trading_dates(start_date: str=None, end_date: str=None) -> pd.DatetimeIn
         raise ValueError(f"获取交易日时发生未知错误: {e}")
 
 if __name__ == '__main__':
-    df = load_fina_indicator_df()
+    df = load_price_hfq('close','2023-01-01','2023-10-01')
     print(1)

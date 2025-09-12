@@ -208,6 +208,13 @@ factor_definition:
     time_alignment: 'no_shift'
     description: '后复权最低价。'
 
+
+  - name: 'vol_hfq'
+    style_category: 'vol'
+    action: null
+    time_alignment: 'shift'
+    description: ''
+
   - name: 'amount'
     style_category: 'liquidity'
     action: null
@@ -326,16 +333,19 @@ factor_definition:
     cal_require_base_fields: [ 'cashflow_ttm', 'total_mv' ]
     cal_require_base_fields_from_daily: False
 
-  - name: 'value_composite'
-    style_category: 'value'
-    description: '价值合成因子，通过对bm_ratio, ep_ratio, sp_ratio等多个价值因子进行打分、标准化后再合成，旨在创建一个更稳健的价值度量。'
-    action: 'composite'
-    time_alignment: 'pre_aligned'   # 代码 不会走get_factor_for_analusis. 所以不用用到这个字段！
-    cal_require_base_fields: [ 'bm_ratio', 'sp_ratio', 'ep_ratio' ]
-    cal_require_base_fields_from_daily: False
+
 
 
   # === 质量 (Quality) - 全部源于财报，应为 pre_aligned ===
+
+  - name: 'debt_252d_ratio'
+    style_category: 'quality'
+    description: ''
+    action: 'technical_calcu'
+    time_alignment: 'pre_aligned'
+    cal_require_base_fields: [ 'debt' ]
+    cal_require_base_fields_from_daily: False
+
   - name: 'roa_ttm'
     style_category: 'quality'
     description: '捕捉公司盈利能力的“边际变化”或“加速度”。一个公司的ROE很高固然好，
@@ -416,6 +426,25 @@ factor_definition:
 
 
   # === 动量与反转 (Momentum & Reversal) - 基于日度行情，应为 shift ===
+
+  - name: 'momentum_1d'
+    style_category: 'momentum'
+    description: ''
+    action: 'technical_calcu'
+    time_alignment: 'shift'
+    cal_require_base_fields: [ 'pct_chg' ]
+    cal_require_base_fields_from_daily: False
+
+
+  - name: 'momentum_5d'
+    style_category: 'momentum'
+    description: ''
+    action: 'technical_calcu'
+    time_alignment: 'shift'
+    cal_require_base_fields: [ 'pct_chg' ]
+    cal_require_base_fields_from_daily: False
+
+
   - name: 'sharpe_momentum_60d'
     style_category: 'momentum'
     description: '传统的动量因子只关心收益率，但高收益可能伴随着高风险。夏普动量通过用波动率
@@ -425,6 +454,8 @@ factor_definition:
     time_alignment: 'shift'
     cal_require_base_fields: [ 'pct_chg' ]
     cal_require_base_fields_from_daily: False
+
+
   - name: 'momentum_12_1'
     style_category: 'momentum'
     description: '过去12个月剔除最近1个月的累计收益率，最经典的截面动量因子，捕捉中期价格惯性。'
@@ -514,6 +545,15 @@ factor_definition:
     cal_require_base_fields_from_daily: False
 
   # === 流动性 (Liquidity) - 基于日度行情，应为 shift ===
+
+  - name: 'turnover_42d_std_252d_std_ratio'
+    style_category: 'liquidity'
+    description: ''
+    action: 'technical_calcu'
+    time_alignment: 'shift'
+    cal_require_base_fields: [ 'turnover_rate' ]
+    cal_require_base_fields_from_daily: False
+
   - name: 'turnover_rate_monthly_mean'
     style_category: 'liquidity'
     description: '月平均换手率，衡量股票在一段时间内的交易活跃度。'
@@ -614,7 +654,15 @@ factor_definition:
     time_alignment: 'shift' # 其成分因子均为shift类型，故也为shift
     cal_require_base_fields: [ 'sell_elg_amount', 'sell_lg_amount' ,'buy_elg_amount','buy_lg_amount']
     cal_require_base_fields_from_daily: False # 依赖于其他衍生因子
-
+#量价因子
+  - name: 'single_day_vpt'
+    style_category: 'volume_price'
+    description: ''
+    action: 'technical_calcu'
+    time_alignment: 'shift' # 其成分因子均为shift类型，故也为shift
+    cal_require_base_fields: [ 'vol_hfq']
+    cal_require_base_fields_from_daily: False # 依赖于其他衍生因子
+#量价因子
 
   # === 复合类因子 (Composite) ===
   - name: 'quality_momentum'
@@ -624,6 +672,23 @@ factor_definition:
     time_alignment: 'shift' # 其成分因子均为shift类型，故也为shift
     cal_require_base_fields: [ 'momentum_120d', 'volatility_90d' ]
     cal_require_base_fields_from_daily: False # 依赖于其他衍生因子
+  #---大杂烩复合因子！
+  - name: 'mom5d_mom1d_vol_wei_3_3_4_combo'
+    style_category: 'hodgepodge_combo'
+    description: 'xx 见factor_calculator 负向ic 居然在60d调仓表现更好！'
+    action: 'composite'
+    time_alignment: 'shift' # 其成分因子均为shift类型，故也为shift
+    cal_require_base_fields: [ 'momentum_1d','momentum_5d', 'vol_hfq']
+    weights: [ 0.3,0.3,0.4]
+    cal_require_base_fields_from_daily: False
+
+  - name: 'value_composite'
+    style_category: 'value'
+    description: '价值合成因子，通过对bm_ratio, ep_ratio, sp_ratio等多个价值因子进行打分、标准化后再合成，旨在创建一个更稳健的价值度量。'
+    action: 'composite'
+    time_alignment: 'pre_aligned'   # 代码 不会走get_factor_for_analusis. 所以不用用到这个字段！
+    cal_require_base_fields: [ 'bm_ratio', 'sp_ratio', 'ep_ratio' ]
+    cal_require_base_fields_from_daily: False
 
   # 合成 rolling
   - name: 'my_composite'

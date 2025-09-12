@@ -135,7 +135,7 @@ class EnhancedFactorStrategy(bt.Strategy):
         # self.p.max_positions =3  # 示例值
 
         # 4. 选股分位数
-        self.p.top_quantile = 0.1  # 示例值
+        # self.top_quantile = 0.1  # 示例值
 
         #订单 意图
         self.order_intents = {}
@@ -295,7 +295,7 @@ class EnhancedFactorStrategy(bt.Strategy):
 
         # 3. 返回合并后的总候选池
         buys = new_buy_candidates.union(pending_buy_candidates)
-        # buys = self._filter_cooldown_stocks(buys) #todo 最后排查完问题!开启
+        buys = self._filter_cooldown_stocks(buys) #todo 最后排查完问题!开启
         return buys, set(self.pending_buys.keys()).__len__() == 0
 
     def _execute_all_buys_prioritized(self, buy_candidates: set, no_pending_buys: bool = None):
@@ -968,11 +968,10 @@ class EnhancedFactorStrategy(bt.Strategy):
         #停牌只能查看真实原始数据
         if not np.isfinite(price):
             return False
-        # todo 记得放开
-        # if data_obj.high[0] == data_obj.low[0]:
-        #     # 这通常意味着股票全天一字板，无法买入也无法卖出
-        #     logger.info(f"'{data_obj._name}' 在 {self.datetime.date(0)} 出现一字板，认定为不可交易。")
-        #     return False
+        if data_obj.high[0] == data_obj.low[0]:
+            # 这通常意味着股票全天一字板，无法买入也无法卖出
+            logger.info(f"'{data_obj._name}' 在 {self.datetime.date(0)} 出现一字板，认定为不可交易。")
+            return False
 
         return True
 
@@ -1329,6 +1328,25 @@ class EnhancedFactorStrategy(bt.Strategy):
             logger.warning(f"⚠️ 卖出执行困难，平均待卖: {avg_pending_sells:.1f}只")
 
 
+
+class AShareCommission(bt.CommInfoBase):
+    params = (
+        ('stamp_duty', 0.001),  # 印花税，千分之一
+        ('commission', 0.0001),  # 手续费，万分之一点五
+        ('stocklike', True),
+        ('percabs', True),
+    )
+
+    def _getcommission(self, size, price, pseudoexec):
+        """
+        这个函数只负责计算【佣金】和【税费】，滑点由框架自动处理
+        """
+        if size > 0:  # 买入
+            return abs(size) * price * self.p.commission
+        elif size < 0:  # 卖出
+            return abs(size) * price * (self.p.commission + self.p.stamp_duty)
+        else:
+            return 0
 class BacktraderMigrationEngine:
     """
     Backtrader迁移引擎 - 一键式从vectorBT迁移的完整解决方案
@@ -1439,18 +1457,20 @@ class BacktraderMigrationEngine:
                     debug_mode=True,
                     trading_days=load_trading_lists(all_dfs['factor_data'].index[0], all_dfs['factor_data'].index[-1]),
                     real_wide_close_price=all_dfs['close'],
-                    log_detailed=True
+                    log_detailed=True,
                 )
 
                 # === 4. 配置交易环境 ===
                 cerebro.broker.setcash(self.bt_config['initial_cash'])
-                # 综合费率计算 #todo 有空再改为 买卖分别计算税率 影响不大
-                comprehensive_fee = (
-                        self.bt_config['commission_rate'] +
-                        self.bt_config['slippage_rate'] +
-                        self.bt_config['stamp_duty'] / 2
-                )
-                cerebro.broker.setcommission(commission=comprehensive_fee)
+
+                # cerebro.broker.setcommission(commission=comprehensive_fee)
+                commission_scheme = AShareCommission(stamp_duty=self.bt_config['stamp_duty'], commission=self.bt_config['commission_rate'])
+
+
+                # 3. 将这位配置齐全的“全能会计师”指派给Broker
+                cerebro.broker.addcommissioninfo(commission_scheme)
+
+                cerebro.broker.  set_slippage_perc(self.bt_config['slippage_rate'], slip_open=True, slip_limit=True, slip_match=True, slip_out=False)
 
                 # === 5. 添加分析器 ===
                 cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
@@ -1521,7 +1541,7 @@ class BacktraderMigrationEngine:
             #     #所有价格*1.5
             #     df_single_stock[['open','close','volume','low','high']]=df_single_stock[['open','close','volume','low','high']]*1.5
 
-            # #mock数据 todo
+            # #mock数据
             # if stock_symbol == 'STOCK_B':
             #     df_single_stock.loc[df_single_stock.index[2],['open','close','volume','low','high','openinterest']]=np.nan
             # 4. 【核心】调用PandasData，并明确告知每一列的位置 (mapping)

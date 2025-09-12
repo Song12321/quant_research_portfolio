@@ -902,7 +902,12 @@ class DataManager:
         if factor_config['action'].iloc[0] in ['composite', 'composite_by_rolling_ic']:
             base_fields = factor_config['cal_require_base_fields'].iloc[0]
             return base_fields
-
+    def get_per_weights_for_composite(self, name):
+        factor_config = self.get_factor_definition(name)
+        if factor_config['action'].iloc[0] in ['composite', 'composite_by_rolling_ic']:
+            base_fields = factor_config['weights'].iloc[0]
+            return base_fields
+        return None
     # ok #ok
     def create_stock_pool(self, stock_pool_config_profile, pool_name):
         """
@@ -942,7 +947,7 @@ class DataManager:
 
         # --普适性 过滤 （通用过滤）
         if universe_filters['remove_new_stocks']:
-            final_stock_pool_df = self._filter_new_stocks(final_stock_pool_df, 6)  # 新股票数据少，数据不全不具参考，所以淘汰
+            final_stock_pool_df = self._filter_new_stocks(final_stock_pool_df, 18)  # 新股票数据少，数据不全不具参考，所以淘汰
         if universe_filters['remove_st']:
             # 构建ST矩阵
             self.build_st_period_from_namechange()

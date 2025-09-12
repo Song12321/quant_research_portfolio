@@ -40,7 +40,7 @@ from quant_lib.evaluation.evaluation import (
     calculate_ic,
     calculate_quantile_returns, fama_macbeth, calculate_top_quantile_turnover_dict,
     quantile_stats_result,
-    calculate_quantile_daily_returns, calculate_forward_returns_tradable_o2o
+    calculate_quantile_daily_returns, calculate_forward_returns_tradable_o2o, alphalens_ic
 
 )
 
@@ -255,6 +255,7 @@ class FactorAnalyzer:
                          factor_data: pd.DataFrame,
                          returns_calculator: Callable[[int, pd.DataFrame, pd.DataFrame], pd.DataFrame],  # 具体化Callable
                          close_df: pd.DataFrame,
+                         open_hfq: pd.DataFrame,
                          factor_name: str) -> Tuple[Dict[str, Series], Dict[str, pd.DataFrame]]:
         """
         IC值分析法测试
@@ -272,7 +273,8 @@ class FactorAnalyzer:
                                                                   forward_periods=self.test_common_periods,
                                                                   method='spearman',
                                                                   returns_calculator=returns_calculator, min_stocks=30)
-
+        #核对结果完美！ 能够复现
+        # alphalens_icx= alphalens_ic(factor_data,open_hfq)
         return ic_series_periods_dict, stats_periods_dict
     def test_quantile_backtest(self,
                                factor_data: pd.DataFrame,
@@ -387,7 +389,7 @@ class FactorAnalyzer:
             )
 
         # 数据准备
-        close_df, circ_mv_df_shifted, style_factor_dfs = self.prepare_date_for_core_test(target_factor_name,stock_pool_index_name)
+        close_hfq,open_hfq, circ_mv_df_shifted, style_factor_dfs = self.prepare_date_for_core_test(target_factor_name, stock_pool_index_name)
         status_text = "需要" if need_process_factor else "不需要"
         log_flow_start(
             f"因子 {target_factor_name}（{status_text}）经过预处理，进入 core_three_test 测试"
@@ -395,7 +397,7 @@ class FactorAnalyzer:
         # save_temp_date(target_factor_name,factor_data_shifted,returns_calculator,'_prcessed')
         ic_s, ic_st, q_r,q_daily_returns_df, q_st, turnover, fm_returns_series_dict, fm_t_stats_series_dict, fm_summary_dict, style_correlation_dict \
             = self.core_three_test(
-            factor_data_shifted, target_factor_name, returns_calculator, close_df,
+            factor_data_shifted, target_factor_name, returns_calculator, close_hfq,open_hfq,
             final_neutral_dfs, circ_mv_df_shifted, style_factor_dfs, do_ic_test,
             do_turnover_test,
             do_quantile_test, do_fama_test, do_style_correlation_test)
@@ -1242,6 +1244,7 @@ class FactorAnalyzer:
     def core_three_test(self, factor_df, target_factor_name,
                         returns_calculator: Callable[[int, pd.DataFrame, pd.DataFrame], pd.DataFrame],
                         close_df,
+                        open_hfq,
                         prepare_for_neutral_shift_base_own_stock_pools_dfs, circ_mv_shift_df, style_factors_dict,
                         do_ic_test, do_turnover_test, do_quantile_test, do_fama_test, do_style_correlation_test
                         ) -> tuple[
@@ -1254,7 +1257,7 @@ class FactorAnalyzer:
         ic_s = ic_st = q_r = q_st = turnover = fm_returns_series_dict = fm_t_stats_series_dict = fm_summary_dict = style_correlation_dict = None
         if do_ic_test:
             ic_s, ic_st = self.test_ic_analysis(factor_df,
-                                                returns_calculator, close_df,
+                                                returns_calculator, close_df,open_hfq,
                                                 target_factor_name)
         # 2. 分层回测
         logger.info("\t3.  正式测试 之 分层回测...")
@@ -1451,12 +1454,13 @@ class FactorAnalyzer:
         # 。close_df计算出的未来收益率矩阵，是后续所有统计检验（IC、分层回测）的**Y变量**。
         # 如果使用带NaN的close_adj，会导致计算出的forward_returns矩阵也充满NaN，从而大幅减少我们统计检验的样本量，降低结果的置信度。#
         # 价格数据：get_prepare_aligned_factor_for_analysis会自动识别并保持T日值 #缺失并不多
-        close_df = self.factor_manager.get_prepare_aligned_factor_for_analysis('close_hfq', stock_pool_index_name, True)#todo 考虑 非要 fill吗 ，看看原来的 缺失率高不高
+        close_hfq = self.factor_manager.get_prepare_aligned_factor_for_analysis('close_hfq', stock_pool_index_name, True)
+        open_hfq = self.factor_manager.get_prepare_aligned_factor_for_analysis('open_hfq', stock_pool_index_name, True)
 
         # 【修正】get_prepare_aligned_factor_for_analysis 现在已经返回T-1值
         circ_mv_df_shifted = self.factor_manager.get_prepare_aligned_factor_for_analysis('circ_mv', stock_pool_index_name, True)
         style_factor_dfs = self.get_style_factors(stock_pool_index_name)
-        return close_df, circ_mv_df_shifted, style_factor_dfs
+        return close_hfq, open_hfq,circ_mv_df_shifted, style_factor_dfs
 
     def prepare_date_for_entity_service(self, factor_name, stock_pool_name, his_snap_config_id=None):
         """
