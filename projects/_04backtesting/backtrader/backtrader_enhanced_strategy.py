@@ -233,7 +233,13 @@ class EnhancedFactorStrategy(bt.Strategy):
         else:
             # 非调仓日：只执行战术卖出和处理待买
             self._execute_all_sells(tactical_sells)
-            self._execute_pending_buys(set(self.pending_buys.keys()))
+            self._execute_pending_buys_V2(set(self.pending_buys.keys()))
+    #         self.buy_for_cash_reamain_to_many()
+    # # def buy_for_cash_reamain_to_many(self):
+    # #     cash = self.broker.get_cash()
+    # #     value = self.broker.getvalue()
+    # #     ratio = cash/value
+    # #     if ratio > 0.20:
 
     # 在你的策略类中
     def _execute_pending_buys(self, stocks_to_try: set):
@@ -272,6 +278,58 @@ class EnhancedFactorStrategy(bt.Strategy):
                 # 今日依然停牌，不做任何操作，任务保留在清单中，等待明天
                 if self.p.debug_mode:
                     logger.debug(f"待买任务 '{stock_name}' 今日仍不可交易，继续等待。")
+
+        # 在你的策略类中
+
+    def _execute_pending_buys_V2(self, stocks_to_try: set):
+        """
+        执行待买清单中的任务。
+        它会使用记录在 pending_buys 中的目标权重。
+
+        更改：直接不买了！
+        直接按当天rank 排序 重新选！
+        """
+        # if not stocks_to_try:
+        #     return
+
+        #持仓多少只
+        #need_buy_num
+        #权重计算
+        #确定买的股票！
+        current_holdings_count = len([d for d in self.datas if self.getposition(d).size > 0])
+        need_buy_num =  self.p.max_positions-current_holdings_count
+        logger.info(f"进入执行 cur:{current_holdings_count} ")
+
+        if need_buy_num == 0:
+            return
+        logger.info(f"为了满仓 需要准备购入{need_buy_num}只股票")
+
+        current_date = self.datetime.date(0)
+        daily_ranks = self.ranks.loc[pd.to_datetime(current_date)].dropna()
+
+        rank_stock_names = set(daily_ranks.nlargest(self.p.max_positions).index)
+        positions  = self.getpositions()
+        # 遍历持仓，提取股票名称
+        current_names = set()
+        for data, pos in positions.items():
+            if pos.size != 0:  # 确保确实有持仓
+                current_names.add(data._name)  # 或者 data._dataname，看你数据源怎么传入的
+
+        diff_stocks = rank_stock_names - current_names
+        selected_stock_name = sorted(diff_stocks, reverse=True)[:need_buy_num]
+
+        #取最大的need_buy_num个
+        logger.info(f"为了满仓运行 买入：{len(selected_stock_name)}个 : {selected_stock_name}")
+
+        ideal_weight = self.p.target_portfolio_exposure /  self.p.max_positions
+        # ideal_weight = self.p.target_portfolio_exposure / len(selected_stock_name) * 现金比例！
+        for stock_name in selected_stock_name:
+            self._submit_order_with_pending(
+                stock_name=stock_name,
+                target_weight=ideal_weight,
+                reason="为了满仓运行 买入"
+            )
+
     def tomorrow_is_rebalance_day(self):
         execution_date = get_tomorrow_b_day(self.p.trading_days, pd.Timestamp(self.datetime.date(0)))
         return execution_date in self.rebalance_dates_set

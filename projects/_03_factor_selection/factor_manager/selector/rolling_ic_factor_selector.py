@@ -19,6 +19,7 @@ from typing import Dict, List, Tuple, Optional, Any
 import warnings
 from dataclasses import dataclass
 
+
 warnings.filterwarnings('ignore')
 
 from projects._03_factor_selection.factor_manager.ic_manager.rolling_ic_manager import run_cal_and_save_rolling_ic_by_snapshot_config_id
@@ -237,11 +238,9 @@ class RollingICFactorSelector:
                         'ic_nw_p_value': stats.get('ic_nw_p_value', 1.0)#底层是Newey-West T-stat
                     })
 
-
             except Exception as e:
                 raise ValueError(f"读取IC快照文件 {ic_file} 失败: {e}")
 
-        
         if not periods_data:
             raise ValueError(f"因子 {factor_name} 无有效的滚动IC数据")
 
@@ -256,6 +255,55 @@ class RollingICFactorSelector:
         # 缓存结果
         self._factor_stats_cache[factor_name] = factor_stats
         
+        return factor_stats
+
+    def build_ic_stats(self, factor_name: str):
+        """
+        Args:
+            factor_name: 因子名称
+        Returns:
+        """
+        # 检查缓存
+        if  factor_name in self._factor_stats_cache:
+            return self._factor_stats_cache[factor_name]
+
+        # 构建数据路径
+        rolling_ic_dir = (self.main_work_path / self.pool_index / factor_name /
+                          'o2o' / self.version / 'rolling_ic')
+
+
+        for ic_file in ic_files:
+            try:
+                with open(ic_file, 'r', encoding='utf-8') as f:
+                    snapshot = json.load(f)
+
+                calc_date = snapshot['calculation_date']
+                dates_range.append(calc_date)
+                ic_stats_snap = snapshot.get('ic_stats', {})
+
+                for period, stats in ic_stats_snap.items():
+                    if period not in periods_data:
+                        periods_data[period] = []
+                    periods_data[period].append({
+                        'date': calc_date,
+                        'ic_mean': stats.get('ic_mean', 0),  # 底层是ewma来的
+                        'ic_ir': stats.get('ic_ir', 0),  # 底层是ewma来的
+                        'ic_win_rate': stats.get('ic_win_rate', 0.5),  # 底层是ewma来的
+                        'avg_daily_rank_change_stats': stats.get('avg_daily_rank_change_stats'),
+                        'ic_std': stats.get('ic_std', 0),
+                        'ic_t_stat': stats.get('ic_t_stat', 0),
+                        'ic_nw_t_stat': stats.get('ic_nw_t_stat', 0),
+                        'ic_nw_p_value': stats.get('ic_nw_p_value', 1.0)  # 底层是Newey-West T-stat
+                    })
+
+            except Exception as e:
+                raise ValueError(f"读取IC快照文件 {ic_file} 失败: {e}")
+
+        factor_stats = self._calculate_factor_statistics(factor_name, periods_data, dates_range)
+
+        # 缓存结果
+        self._factor_stats_cache[factor_name] = factor_stats
+
         return factor_stats
     
     def _calculate_factor_statistics(self, factor_name: str, periods_data: Dict, dates_range: List[str]) -> FactorRollingICStats:
@@ -615,22 +663,64 @@ class RollingICFactorSelector:
         logger.info(f"final_multiplier:{final_multiplier} total_turnover_multiplier:{total_turnover_multiplier}")
         return adjusted_score
 
-    def screen_factors_by_rolling_ic(self, factor_names: List[str], force_generate: bool = False) -> Dict[str, FactorRollingICStats]:
+    def screen_factors_by_rolling_ic_old(self, factor_names: List[str], force_generate: bool = False) -> Dict[
+        str, FactorRollingICStats]:
         """
         基于滚动IC筛选因子
-        
+
         Args:
             factor_names: 候选因子列表
             force_generate: 是否强制重新生成滚动IC
-            
+
         Returns:
             Dict[factor_name, FactorRollingICStats]: 通过筛选的因子
         """
-        logger.info(f"开始基于滚动IC筛选 {len(factor_names)} 个因子...")
-        
+
         qualified_factors = {}
-        
+
         for i, factor_name in enumerate(factor_names, 1):
+            logger.info(f"处理因子 {i}/{len(factor_names)}: {factor_name}")
+
+            try:
+                # 提取因子统计
+                factor_stats = self.extract_factor_rolling_ic_stats(factor_name, force_generate)
+
+                if factor_stats is None:
+                    raise ValueError(f"因子 {factor_name}: 无法获取滚动IC统计")
+
+                # 应用筛选条件
+                passes_screening = self._evaluate_factor_quality(factor_stats)
+
+                if passes_screening:
+                    qualified_factors[factor_name] = factor_stats
+                    direction = "+" if np.sign(factor_stats.avg_ic_with_sign) > 0 else "-"
+                    logger.info(f"  {direction} {factor_name}: 通过筛选")
+                    logger.info(f"    IC={factor_stats.avg_ic_abs:.3f}, IR={factor_stats.avg_ir_abs:.2f}")
+                    logger.info(
+                        f"    稳定性={factor_stats.avg_stability:.2f}, 日换手率={factor_stats.daily_rank_change_mean:.1%}")
+                    logger.info(
+                        f"    基础评分={factor_stats.multi_period_score:.1f}, 调整评分={factor_stats.turnover_adjusted_score:.1f}")
+                else:
+                    logger.info(f"  - {factor_name}: 未通过筛选")
+
+            except Exception as e:
+                raise ValueError(f"处理因子 {factor_name} 时出错: {e}")
+                # continue
+
+        logger.info(
+            f"by滚动IC_筛选(ic（稳定、胜率）、周期、换手率)完成: {len(qualified_factors)}/{len(factor_names)} 个因子通过")
+        return qualified_factors
+
+    def screen_factors_by_rolling_ic(self, factor_names: List[str]) -> Dict[str, FactorRollingICStats]:
+        """
+        Args:
+            factor_names: 候选因子列表
+        Returns:
+            Dict[factor_name, FactorRollingICStats]: 通过筛选的因子
+        """
+        qualified_factors = {}
+        passed_factor_names = get_base_passed_factors()
+        for i, factor_name in enumerate(passed_factor_names, 1):
             logger.info(f"处理因子 {i}/{len(factor_names)}: {factor_name}")
             
             try:
@@ -1003,8 +1093,8 @@ class RollingICFactorSelector:
             direction = "+" if list(stats.periods_data.values())[0]['ic_mean_avg'] > 0 else "-"
             logger.info(f"{i}. {direction} {name}")
             logger.info(f"   评分: {stats.multi_period_score:.1f}")
-            logger.info(f"   最佳周期: {stats.best_period_ic_ir:.1f}")
-            logger.info(f"   综合IC: {stats.avg_ic_with_sign:.3f}, 综合IR: {stats.avg_ir_ir_with_sign:.2f}")
+            # logger.info(f"   最佳周期: {stats.best_period_ic_ir:.1f}")
+            # logger.info(f"   综合IC: {stats.avg_ic_with_sign:.3f}, 综合IR: {stats.avg_ir_ir_with_sign:.2f}")
             logger.info(f"   稳定性: {stats.avg_stability:.1%}")
             logger.info(f"   时间跨度: {stats.time_range[0]} ~ {stats.time_range[1]}")
         
@@ -1012,46 +1102,61 @@ class RollingICFactorSelector:
     
     def run_complete_selection(self, factor_names: List[str], force_generate: bool = False) -> Tuple[List[str], Dict[str, Any]]:
         """
-        运行完整的因子筛选流程
-        
+        第一步：全样本“硬筛选” (Phase 1 - 看简历):
+
+        （全样本IC均值、ICIR、Newey-West T值），对所有备选因子进行一次残酷的“资格认证”。
+
+        目的： 确保进入下一轮的，都是在过去数年完整历史中，被证明了“基因”优秀的因子。
+
+        第二步：滚动表现“优中选优” (Phase 2 - 看状态):
+
+        在第一步筛选出的“精英池”内部，我们才开始考察它们近期的滚动IC表现。
+
+        目的： 从一群“基因”都很好的因子中，挑选出那些“近期状态”也正佳的。
+
+        第三步：类别内选择 (Intra-Category Selection):
+
+        流程不变。
+
+        第四步：相关性控制 (Correlation Control):
+
+        流程不变。
         Args:
             factor_names: 候选因子列表
-            force_generate: 是否强制重新生成滚动IC
-            
         Returns:
             Tuple[List[str], Dict]: (选中因子列表, 详细报告)
         """
         logger.info("=" * 60)
         logger.info("开始基于滚动IC的完整因子筛选")
         logger.info("=" * 60)
-        
-        # 第一步：基于滚动IC筛选
-        qualified_factors = self.screen_factors_by_rolling_ic(factor_names, force_generate)
-        
-        if not qualified_factors:
-            logger.warning("警告：没有因子通过滚动IC筛选")
-            return [], {}
-        
+        #
+        # # 第一步 筛选（base+近期表现
+        # #  passed_factor_names = self.get_passed_factor_names(factor_names, force_generate)
+        #
+        # if not qualified_factors:
+        #     logger.warning("警告：没有因子通过滚动IC筛选")
+        #     return [], {}
+        #
         # 第二步：类别内选择
-        category_champions = self.select_category_champions(qualified_factors)
+        category_champions = self.select_category_champions(factor_names)
         
         if not category_champions:
             logger.warning("警告：没有类别冠军")
             return [], {}
         
         # 第三步：初步最终选择 （只是过滤数量的过滤而已），限制最多八个
-        preliminary_selection = self.generate_final_selection(category_champions, qualified_factors)
+        # preliminary_selection = self.generate_final_selection(category_champions, qualified_factors)
         
         # 第四步：三层相关性控制哲学
         final_selection, correlation_report = self.apply_correlation_control( #debug here
-            preliminary_selection, qualified_factors
+            factor_names, qualified_factors
         )
         
         # 生成详细报告
         report = self._generate_selection_report(
             factor_names, qualified_factors, category_champions, final_selection, correlation_report
         )
-        
+
         logger.info("=" * 60)
         logger.info("滚动IC因子筛选完成！")
         logger.info(f"推荐用于IC加权合成: {final_selection}")
@@ -1693,3 +1798,5 @@ class RollingICFactorSelector:
         logger.info(f"   决策记录: {len(decisions)} 条")
         
         return final_factors, orthogonalization_plan, decisions
+
+

@@ -237,8 +237,8 @@ def demo_basic_backtrader():
 
     # 2. 使用原有配置（完全兼容）
     config = BacktestConfig(
-        top_quantile=0.1,  # 做多前30%
-        rebalancing_freq='60d',  # 月度调仓
+        top_quantile=0.2,  # 做多前30%
+        rebalancing_freq='30d',  # 月度调仓
         commission_rate=0.0001,  # 万n佣金
         slippage_rate=0.0005,  # 滑点
         stamp_duty=0.001,  # 千1印花税
