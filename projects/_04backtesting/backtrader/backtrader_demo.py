@@ -131,7 +131,7 @@ def load_composite_factor(start_date, end_date):
         # composite_factor = (0.4*z_cfp + 0.4*z_ln_turnover_value_90d + 0.2*z_operating_accruals) / 1
         #
         # return {'factor_name':single_day_vpt}
-        single_day_vpt  = result_manager.get_factor_data('roe_ttm') * 1
+        single_day_vpt  = result_manager.get_factor_data('lqs_orthogonal_v2') * 1
         #
         return {'factor_name':single_day_vpt}
 
@@ -237,8 +237,8 @@ def demo_basic_backtrader():
 
     # 2. 使用原有配置（完全兼容）
     config = BacktestConfig(
-        top_quantile=0.3,  # 做多前30%
-        rebalancing_freq='21d',  # 月度调仓
+        top_quantile=0.1,  # 做多前30%
+        rebalancing_freq='60d',  # 月度调仓
         commission_rate=0.0001,  # 万n佣金
         slippage_rate=0.0005,  # 滑点
         stamp_duty=0.001,  # 千1印花税

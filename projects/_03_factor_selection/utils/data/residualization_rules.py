@@ -277,6 +277,7 @@ def _is_high_autocorr_momentum_factor(factor_name: str) -> bool:
         'momentum_5d',
         'momentum_12_2',
         'sharpe_momentum_60d',
+        'rstr_m6',
         'quality_momentum', # 组合因子，默认不处理
     }
     if factor_name in high_autocorr:

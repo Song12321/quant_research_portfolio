@@ -286,7 +286,7 @@ class VisualizationManager:
             ic_stats_proc = stats.get('ic_analysis_processed', {})
             q_stats_proc = stats.get('quantile_backtest_processed', {})
             fm_stats = stats.get('fama_macbeth', {})
-            data['best_period'] = self._find_best_period_by_rank(ic_stats_proc, q_stats_proc, fm_stats)
+            data['best_period'] ='21d' #self._find_best_period_by_rank(ic_stats_proc, q_stats_proc, fm_stats)
 
             def load_optional_parquet(file_name):
                 path = target_version_path / file_name

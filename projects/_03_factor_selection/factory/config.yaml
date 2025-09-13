@@ -427,6 +427,16 @@ factor_definition:
 
   # === 动量与反转 (Momentum & Reversal) - 基于日度行情，应为 shift ===
 
+  - name: 'rstr_m6'
+    style_category: 'momentum'
+    description: ''
+    action: 'technical_calcu'
+    time_alignment: 'shift'
+    cal_require_base_fields: [ 'pct_chg' ]
+    cal_require_base_fields_from_daily: False
+
+
+
   - name: 'momentum_1d'
     style_category: 'momentum'
     description: ''
@@ -706,6 +716,15 @@ factor_definition:
     action: 'composite_by_rolling_ic'
     time_alignment: None # 合成因子，也不会用到这个字段，所以随便写
     cal_require_base_fields: ['volatility_40d','sp_ratio','earnings_stability','cfp_ratio','ep_ratio']
+    cal_require_base_fields_from_daily: False # 依赖于其他衍生因子
+
+  # 合成 rolling
+  - name: 'lqs_orthogonal_v2'
+    style_category: 'turnover-compostite'
+    description: 'v2测试查看合成之后的表现'
+    action: 'composite_by_rolling_ic'
+    time_alignment: None # 合成因子，也不会用到这个字段，所以随便写
+    cal_require_base_fields: ['amihud_liquidity','cfp_ratio','operating_accruals','volatility_120d','volatility_90d','ln_turnover_value_90d','revenue_growth_ttm','log_circ_mv']
     cal_require_base_fields_from_daily: False # 依赖于其他衍生因子
 
 

@@ -1040,7 +1040,7 @@ class FactorCalculator:
         market_pct_chg.name = index_code
 
         return market_pct_chg
-    #分类 行业~~~
+    #分类 行业~~~ 这是有问题的！！
     def _calculate_sw_l1_momentum_21d(self, pointInTimeIndustryMap: PointInTimeIndustryMap):
         fa = IndustryMomentumFactor(pointInTimeIndustryMap)
         ret = fa.compute(self.factor_manager.data_manager._prebuffer_trading_dates, 'l1_code')
@@ -1099,6 +1099,47 @@ class FactorCalculator:
         df[factor_name] = abs(mean_safe) / std_safe
         return df
     ##以下是模板
+
+    def calculate_exponential_weighted_momentum(self,
+                                                daily_returns_df: pd.DataFrame,
+                                                lookback_period: int = 120,
+                                                half_life: int = 30
+                                                ) -> pd.DataFrame:
+        """
+        【最终修正版】计算指数加权动量/反转因子 (RSTR)。
+        修正了滚动窗口在回测初期长度不足的问题。
+        """
+        # 1. 计算每日对数收益率
+        log_returns = np.log(1 + daily_returns_df)
+
+        # 2. 【核心】根据半衰期，计算【完整长度】的指数衰减权重序列
+        decay_rate = 0.5 ** (1 / half_life)
+        weights = decay_rate ** np.arange(lookback_period)
+        weights = weights[::-1]  # 反转，让最近的权重在数组末尾
+
+        # 3. 使用 rolling().apply() 来计算加权滚动和
+        def weighted_sum(x: np.ndarray) -> float:
+            """
+            这个内部函数现在可以处理任意长度的输入 x。
+            """
+            # a. 获取当前窗口的实际长度
+            current_window_size = len(x)
+
+            # b. 【关键修正】从完整的120天权重数组中，只截取最新的、与当前窗口等长的部分
+            #    weights[-current_window_size:] 会从权重数组的【末尾】，截取所需长度的一段
+            relevant_weights = weights[-current_window_size:]
+
+            # c. 现在，x 和 relevant_weights 的长度完全一致，可以安全地计算
+            return np.sum(x * relevant_weights)
+
+        # raw=True 可以提升 apply 的性能
+        rstr_factor = log_returns.rolling(
+            window=lookback_period,
+            min_periods=lookback_period // 2
+        ).apply(weighted_sum, raw=True)
+
+        return rstr_factor
+
     def _calculate_vwap_hfq(self) -> pd.DataFrame:
         """
         【V2.0 - 基于第一性原理】计算每日的后复权VWAP (vwap_hfq)。
@@ -1758,6 +1799,9 @@ class FactorCalculator:
         )
 
     # === 动量类 (Momentum) 新增 ===
+    def _calculate_rstr_m6(self) -> pd.DataFrame:
+        daily_return = self.factor_manager.get_raw_factor('pct_chg')
+        return self.calculate_exponential_weighted_momentum(daily_return,120,30)
 
     #ok
     def _calculate_sharpe_momentum_60d(self) -> pd.DataFrame:

@@ -26,6 +26,7 @@ from sklearn.linear_model import LinearRegression
 from projects._03_factor_selection.config_manager.factor_direction_config import get_new_factor_direction
 from projects._03_factor_selection.data_manager.data_manager import DataManager
 from projects._03_factor_selection.factor_manager.factor_manager import FactorManager
+from projects._03_factor_selection.factor_manager.selector.factor_selector import FactorSelector
 from projects._03_factor_selection.factor_manager.storage.result_load_manager import ResultLoadManager
 from projects._03_factor_selection.factor_manager.ic_manager.rolling_ic_manager import (
     ICCalculationConfig, run_cal_and_save_rolling_ic_by_snapshot_config_id
@@ -654,7 +655,7 @@ class ICWeightedSynthesizer(FactorSynthesizer):
                         snapshot_data = json.load(f)
                     
                     # 提取ic_stats字段
-                    ic_stats = snapshot_data.get('ic_stats', {})
+                    ic_stats = snapshot_data.get('stats', {})
                     
                     # 聚合各周期的统计数据
                     for period, period_stats in ic_stats.items():
@@ -1362,12 +1363,12 @@ class ICWeightedSynthesizer(FactorSynthesizer):
         
         # 1. 初始化专业筛选器
         if self.factor_selector is None:
-            self.factor_selector = RollingICFactorSelector(snap_config_id, self.selector_config)
+            self.factor_selector = FactorSelector(snap_config_id, self.selector_config)
             logger.info("✅ 滚动IC因子筛选器初始化完成")
         
         # 2. 执行完整的专业筛选流程（包含正交化计划生成）
         selected_factors, selection_report = self.factor_selector.run_complete_selection(
-            candidate_factor_names, force_generate_ic
+            factor_names = candidate_factor_names, force_generate = force_generate_ic
         )
         
         if not selected_factors:
@@ -1602,8 +1603,14 @@ if __name__ == '__main__':
 
     factor_analyzer = FactorAnalyzer(factor_manager)
     factor_processor = FactorProcessor(factor_manager.data_manager.config)
-    (ICWeightedSynthesizer(factor_manager, factor_analyzer, factor_processor).synthesize_with_orthogonalization
-     (composite_factor_name='composite_factor_name',candidate_factor_names=['volatility_40d','sp_ratio','earnings_stability','cfp_ratio','ep_ratio']
-      ,snap_config_id= '20250825_091622_98ed2d08',force_generate_ic=False))
+    iCWeightedSynthesizer = (ICWeightedSynthesizer(factor_manager, factor_analyzer, factor_processor))
+    ret  = {
+        'log_circ_mv': iCWeightedSynthesizer._load_factor_ic_stats('log_circ_mv', '000906',snap_config_id = '20250906_045625_05e460ab')
+    }
+    iCWeightedSynthesizer.weight_calculator.calculate_ic_based_weights(ret)
+
+    # (ICWeightedSynthesizer(factor_manager, factor_analyzer, factor_processor).synthesize_with_orthogonalization
+    #  (composite_factor_name='composite_factor_name',candidate_factor_names=['volatility_40d','sp_ratio','earnings_stability','cfp_ratio','ep_ratio']
+    #   ,snap_config_id= '20250825_091622_98ed2d08',force_generate_ic=False))
 
     ##todo 合成好的因子在进入 ic测试!! 直接用本地的close数据就行

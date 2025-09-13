@@ -4,7 +4,7 @@
 支持功能：
 1. 多线程并发执行
 2. 进度监控和日志记录
-3. 异常处理和重试机制
+4. 异常处理和重试机制
 4. 资源管理和内存控制
 5. 可配置的并发参数
 """
@@ -153,7 +153,7 @@ class FactorCalculationExecutor(ConcurrentExecutor):
         # 因子计算通常CPU密集，适当减少并发数
         if config is None:
             config = ConcurrentConfig(
-                max_workers=3,  # 因子计算CPU密集，不宜过多线程
+                max_workers=4,  # 因子计算CPU密集，不宜过多线程
                 timeout=12000,   # 因子计算可能较耗时
                 retry_count=2   # 增加重试次数
             )
@@ -201,7 +201,7 @@ class FactorCalculationExecutor(ConcurrentExecutor):
         self,
         factor_names: List[str],
         snapshot_config_id: str,
-        chunk_size: int = 3,
+        chunk_size: int = 1,
         target_function: Callable = None
     ) -> Tuple[List[Any], List[Tuple[List[str], Exception]]]:
         """
@@ -247,7 +247,7 @@ class FactorCalculationExecutor(ConcurrentExecutor):
 def run_concurrent_factors(
     factor_names: List[str],
     snapshot_config_id: str,
-    max_workers: int = 3,
+    max_workers: int = 1,
     execution_mode: str = "single"  # "single" 或 "chunked"
 ) -> Tuple[List[Any], List[Tuple[Any, Exception]]]:
     """
@@ -268,7 +268,7 @@ def run_concurrent_factors(
     if execution_mode == "single":
         return executor.execute_factor_batch(factor_names, snapshot_config_id)
     elif execution_mode == "chunked":
-        return executor.execute_chunked_factors(factor_names, snapshot_config_id, chunk_size=3)
+        return executor.execute_chunked_factors(factor_names, snapshot_config_id, chunk_size=1)
     else:
         raise ValueError(f"不支持的执行模式: {execution_mode}")
 
@@ -281,6 +281,17 @@ if __name__ == "__main__":
     # df = pd.read_csv(r'D:\lqs\codeAbout\py\Quantitative\quant_research_portfolio\projects\_03_factor_selection\factor_manager\selector\o2o_v3.csv')
     # factor_names = df['factor_name'].unique().tolist()
     factor_names =['amihud_liquidity', 'cfp_ratio', 'ln_turnover_value_90d', 'operating_accruals', 'turnover_rate', 'turnover_rate_90d_mean', 'turnover_rate_monthly_mean', 'volatility_120d', 'volatility_40d', 'volatility_90d']
+    factor_names = [
+        'amihud_liquidity'
+        # 'cfp_ratiocfp_ratio',  # 价值基石
+        # 'operating_accruals',  # 被价值“提纯”后的质量因子
+        # 'volatility_120d',  # 低风险基石
+        # 'volatility_90d',
+        # 'ln_turnover_value_90d',  # 被波动率“提纯”后的换手率因子
+        # 'sw_l1_momentum_21d',  # 被市值“提纯”后的动量因子
+        # 'revenue_growth_ttm',  # 成长基石
+        # 'log_circ_mv'  # 市值因子本身
+    ]
     #
     snapshot_config_id = '20250906_045625_05e460ab'
     
@@ -298,6 +309,6 @@ if __name__ == "__main__":
     successful, failed = run_concurrent_factors(
         factor_names=factor_names,
         snapshot_config_id=snapshot_config_id,
-        max_workers=3,
+        max_workers=8,
         execution_mode="chunked"
     )

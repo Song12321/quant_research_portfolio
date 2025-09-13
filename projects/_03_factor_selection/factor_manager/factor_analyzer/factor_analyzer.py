@@ -986,6 +986,7 @@ class FactorAnalyzer:
                                          factor_name: str,
                                          stock_pool_index_name: str,
                                          preprocess_method: str = "standard",
+                                         his_snap_config_id: str = None,
                                          ) -> Dict[str, Any]:
         """
         测试单个因子
@@ -995,7 +996,7 @@ class FactorAnalyzer:
         """
         factor_data_shifted, is_composite_factor, start_date, end_date, stock_pool_index_code, stock_pool_name, style_category, test_configurations \
             = self.prepare_date_for_entity_service(
-            factor_name, stock_pool_index_name)
+            factor_name, stock_pool_index_name,his_snap_config_id)
 
         # 获取eva_data配置，默认测试两种数据状态
         eva_data_config = self.config.get('evaluation', {}).get('eva_data', ['raw', 'processed'])

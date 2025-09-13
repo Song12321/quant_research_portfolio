@@ -33,8 +33,8 @@
 #  stock_pool_name: 'ZZ800'
 #
 ## === 价值 (Value) ===
-#- factor_name: 'bm_ratio'
-#  stock_pool_name: 'ZZ800'
+##- factor_name: 'bm_ratio'
+##  stock_pool_name: 'ZZ800'
 #
 #- factor_name: 'ep_ratio'
 #  stock_pool_name: 'ZZ800'
@@ -147,12 +147,28 @@
 #
 #- factor_name: 'revenue_growth_ttm'
 #  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'rstr_m6'
+#  stock_pool_name: 'ZZ800'
+#
+#
+#
+#- factor_name: 'single_day_vpt'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'debt_252d_ratio'
+#  stock_pool_name: 'ZZ800'
+#
+#
+#- factor_name: 'turnover_42d_std_252d_std_ratio'
+#  stock_pool_name: 'ZZ800'
+
 
 
 #--------------------------------------------------------------------------------------- 模板以上
 ##临时测试
 
-- factor_name: 'roe_ttm'
+- factor_name: 'lqs_orthogonal_v2'
   stock_pool_name: 'ZZ800'
 
 #todo 有问题

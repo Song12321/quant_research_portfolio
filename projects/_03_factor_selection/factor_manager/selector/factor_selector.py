@@ -1,4 +1,9 @@
 import json
+
+import pandas as pd
+import numpy as np
+from typing import Dict, List, Tuple
+
 from scipy.cluster.hierarchy import linkage, fcluster, dendrogram
 from scipy.spatial.distance import squareform
 import matplotlib.pyplot as plt
@@ -49,6 +54,8 @@ class FactorStats:
     # daily_turnover_trend: float
     # daily_turnover_volatility: float
     # turnover_adjusted_score: float = 0.0  # 换手率调整后评分
+
+
 
 
 @dataclass
@@ -151,8 +158,8 @@ class FactorSelector:
 
     def _load_factor_data(self, factor_name: str) -> Optional[pd.DataFrame]:
         return self.resultLoadManager.get_factor_data(factor_name)
-    def build_factor_icir_data(self,
-                                   run_version: str = 'latest') :
+    def build_factor_data(self,
+                          run_version: str = 'latest') :
         base_path = workspaces_result_dir / self.resultLoadManager.pool_index
         ret = {}
         for factor_dir in base_path.iterdir():
@@ -171,11 +178,293 @@ class FactorSelector:
             if  len (one_period)!=0:
                 ret[factor_name] = one_period
         return ret
+
+    def plot_factor_data(self,
+                        run_version: str = 'latest',
+    ):
+
+        all_factors_summary_data = self.build_factor_data()
+        for name,_ in all_factors_summary_data.items():
+            if name != 'lqs_orthogonal_v2':
+                continue
+            self.plot_one_factor(name,self.pool_index)
+
+
+    def classify_factor_pattern(
+            quantile_stats: Dict,
+            n_quantiles: int = 5
+    ) -> Dict:
+        """
+        【自动化模式识别引擎】
+        根据分层回测的统计结果，自动识别因子模式，并返回对应的“策略处方”。
+
+        Args:
+            quantile_stats (Dict): 单个周期的分层回测统计结果。
+            n_quantiles (int): 分组数量。
+
+        Returns:
+            Dict: 包含模式、做多/做空组、得分和说明的“策略处方”。
+        """
+        # 提取核心指标
+        spearman_corr = quantile_stats.get('monotonicity_spearman', 0.0)
+        quantile_means = quantile_stats.get('quantile_means', [np.nan] * n_quantiles)
+
+        # 定义返回值模板
+        prescription = {
+            'pattern': 'Noise',
+            'long_quantiles': [],
+            'short_quantiles': [],
+            'score': spearman_corr,
+            'comment': '无明显稳定模式'
+        }
+
+        # --- 模式A: 单调模式 (Monotonic) ---
+        # 使用一个稍宽松的阈值，因为完美单调很少见
+        monotonicity_threshold = 0.7
+        if spearman_corr >= monotonicity_threshold:
+            prescription.update({
+                'pattern': 'Monotonic_Positive',
+                'long_quantiles': [n_quantiles],
+                'short_quantiles': [1],
+                'comment': f'显著正向单调性 (Spearman={spearman_corr:.2f})'
+            })
+            return prescription
+
+        if spearman_corr <= -monotonicity_threshold:
+            prescription.update({
+                'pattern': 'Monotonic_Negative',
+                'long_quantiles': [1],
+                'short_quantiles': [n_quantiles],
+                'comment': f'显著负向单调性 (Spearman={spearman_corr:.2f})'
+            })
+            return prescription
+
+        # --- 如果不是单调模式，再检查非线性模式 ---
+        if pd.isna(quantile_means).any():
+            prescription['comment'] = '分层收益数据不完整，无法判断非线性模式'
+            return prescription
+
+        middle_quantiles = list(range(2, n_quantiles))  # Q2, Q3, Q4
+        extreme_quantiles = [1, n_quantiles]
+
+        mean_of_middle = np.mean([quantile_means[q - 1] for q in middle_quantiles])
+        mean_of_extremes = np.mean([quantile_means[q - 1] for q in extreme_quantiles])
+
+        # --- 模式B: U型 (Convex / "Smile") ---
+        # 中间显著跑赢两边
+        if mean_of_middle > mean_of_extremes:
+            prescription.update({
+                'pattern': 'U_Shaped',
+                'long_quantiles': middle_quantiles,
+                'short_quantiles': extreme_quantiles,
+                'score': mean_of_middle - mean_of_extremes,  # 用收益差作为得分
+                'comment': '中间组表现优于两边组'
+            })
+            return prescription
+
+        # --- 模式C: 倒U型 (Concave / "Frown") ---
+        # 两边显著跑赢中间
+        if mean_of_extremes > mean_of_middle:
+            prescription.update({
+                'pattern': 'Inverted_U_Shaped',
+                'long_quantiles': extreme_quantiles,
+                'short_quantiles': middle_quantiles,
+                'score': mean_of_extremes - mean_of_middle,
+                'comment': '两边组表现优于中间组 (杠铃策略)'
+            })
+            return prescription
+
+        return prescription  # 如果以上都不是，则返回默认的 "Noise"
+
+    def select_by_factor_quantile_pattern(self):
+        all_factors_summary_data = self.build_factor_data()
+        factor_library = {}  # 用于存储所有因子的分析结果
+        ret = []
+        for factor_name in all_factors_summary_data.keys ():
+            print(f"\n--- 正在分析因子: {factor_name} ---")
+
+            # 1. 运行你已有的数据计算流程
+            # factor_data 是当前因子的数据
+            quantile_returns, quantile_stats = self.get_quantile_info(factor_name)
+            best_period_int = 21
+
+            stats_to_check = quantile_stats.get('21d')
+            returns_to_check = quantile_returns
+
+            if not stats_to_check or returns_to_check is None:
+                continue
+
+            # 3. 【调用新引擎】进行模式识别和强度评估
+            strategy_prescription = self.classify_factor_pattern_with_strength(
+                quantile_stats=stats_to_check,
+                quantile_returns_df=returns_to_check,
+                period=best_period_int
+            )
+
+            # 4. 打印全新的、信息更丰富的报告
+            print(f"  因子模式: {strategy_prescription['pattern']}")
+            print(f"  建议做多: Q{strategy_prescription['long_quantiles']}")
+            print(f"  建议做空: Q{strategy_prescription['short_quantiles']}")
+            print(f"  【强度指标】年化收益: {strategy_prescription['annual_return']:.2%}")
+            print(f"  【强度指标】夏普比率: {strategy_prescription['sharpe_ratio']:.2f}")
+            if strategy_prescription['sharpe_ratio']>0.7:
+                ret.append(factor_name)
+        return ret
+
+    def _calculate_spread_stats(self,spread_series: pd.Series, period: int) -> Dict:
+        """辅助函数：根据一个多空收益序列，计算关键统计指标"""
+        if spread_series.dropna().empty or len(spread_series.dropna()) < 20:  # 样本太少则无意义
+            return {'annual_return': np.nan, 'sharpe_ratio': np.nan}
+
+        clean_series = spread_series
+
+        if len(clean_series) < 5:  # 独立样本太少
+            return {'annual_return': np.nan, 'sharpe_ratio': np.nan}
+
+        mean_ret = clean_series.mean()
+        std_ret = clean_series.std()
+
+        periods_per_year = 252 / period
+        annual_return = (1 + mean_ret) ** periods_per_year - 1
+        sharpe_ratio = (mean_ret / std_ret) * np.sqrt(periods_per_year) if std_ret > 0 else 0
+
+        return {'annual_return': annual_return, 'sharpe_ratio': sharpe_ratio}
+
+    def classify_factor_pattern_with_strength(
+            self,
+            quantile_stats: Dict,
+            quantile_returns_df: pd.DataFrame,  # 【新增】传入每日分层收益
+            period: int,  # 【新增】传入当前周期
+            n_quantiles: int = 5
+    ) -> Dict:
+        """
+        【最终版·模式识别与强度评估引擎】
+        自动识别模式，并计算该模式下的多空组合年化夏普比率。
+        """
+        prescription = self.classify_factor_pattern(quantile_stats, n_quantiles)  # 调用我们之前的模式识别函数
+
+        # 如果是噪音，直接返回
+        if prescription['pattern'] == 'Noise':
+            prescription.update({'annual_return': 0.0, 'sharpe_ratio': 0.0})
+            return prescription
+
+        # 【核心】根据识别出的模式，构建对应的多空收益序列
+        long_cols = [f'Q{q}' for q in prescription['long_quantiles']]
+        short_cols = [f'Q{q}' for q in prescription['short_quantiles']]
+
+        # 确保列存在
+        if not all(c in quantile_returns_df.columns for c in long_cols + short_cols):
+            prescription.update({'annual_return': np.nan, 'sharpe_ratio': np.nan, 'comment': '收益数据列缺失'})
+            return prescription
+
+        long_return = quantile_returns_df[long_cols].mean(axis=1)
+        short_return = quantile_returns_df[short_cols].mean(axis=1)
+
+        spread_series = long_return - short_return
+
+        # 计算这个特定多空组合的统计指标
+        stats = self._calculate_spread_stats(spread_series, period)
+
+        # 将强度指标更新到处方中
+        prescription.update(stats)
+
+        return prescription
+    def classify_factor_pattern(
+            self,
+            quantile_stats: Dict,
+            n_quantiles: int = 5
+    ) -> Dict:
+        """
+        【自动化模式识别引擎】
+        根据分层回测的统计结果，自动识别因子模式，并返回对应的“策略处方”。
+        Args:
+            quantile_stats (Dict): 单个周期的分层回测统计结果。
+            n_quantiles (int): 分组数量。
+
+        Returns:
+            Dict: 包含模式、做多/做空组、得分和说明的“策略处方”。
+        """
+        # 提取核心指标
+        spearman_corr = quantile_stats.get('monotonicity_spearman', 0.0)
+        quantile_means = quantile_stats.get('quantile_means', [np.nan] * n_quantiles)
+
+        # 定义返回值模板
+        prescription = {
+            'pattern': 'Noise',
+            'long_quantiles': [],
+            'short_quantiles': [],
+            'score': spearman_corr,
+            'comment': '无明显稳定模式'
+        }
+
+        # --- 模式A: 单调模式 (Monotonic) ---
+        # 使用一个稍宽松的阈值，因为完美单调很少见
+        monotonicity_threshold = 0.7
+        if spearman_corr >= monotonicity_threshold:
+            prescription.update({
+                'pattern': 'Monotonic_Positive',
+                'long_quantiles': [n_quantiles],
+                'short_quantiles': [1],
+                'comment': f'显著正向单调性 (Spearman={spearman_corr:.2f})'
+            })
+            return prescription
+
+        if spearman_corr <= -monotonicity_threshold:
+            prescription.update({
+                'pattern': 'Monotonic_Negative',
+                'long_quantiles': [1],
+                'short_quantiles': [n_quantiles],
+                'comment': f'显著负向单调性 (Spearman={spearman_corr:.2f})'
+            })
+            return prescription
+
+        # --- 如果不是单调模式，再检查非线性模式 ---
+        if pd.isna(quantile_means).any():
+            prescription['comment'] = '分层收益数据不完整，无法判断非线性模式'
+            return prescription
+
+        middle_quantiles = list(range(2, n_quantiles))  # Q2, Q3, Q4
+        extreme_quantiles = [1, n_quantiles]
+
+        mean_of_middle = np.mean([quantile_means[q - 1] for q in middle_quantiles])
+        mean_of_extremes = np.mean([quantile_means[q - 1] for q in extreme_quantiles])
+
+        # --- 模式B: U型 (Convex / "Smile") ---
+        # 中间显著跑赢两边
+        if mean_of_middle > mean_of_extremes:
+            prescription.update({
+                'pattern': 'U_Shaped',
+                'long_quantiles': middle_quantiles,
+                'short_quantiles': extreme_quantiles,
+                'score': mean_of_middle - mean_of_extremes,  # 用收益差作为得分
+                'comment': '中间组表现优于两边组'
+            })
+            return prescription
+
+        # --- 模式C: 倒U型 (Concave / "Frown") ---
+        # 两边显著跑赢中间
+        if mean_of_extremes > mean_of_middle:
+            prescription.update({
+                'pattern': 'Inverted_U_Shaped',
+                'long_quantiles': extreme_quantiles,
+                'short_quantiles': middle_quantiles,
+                'score': mean_of_extremes - mean_of_middle,
+                'comment': '两边组表现优于中间组 (杠铃策略)'
+            })
+            return prescription
+
+        return prescription  # 如果以上都不是，则返回默认的 "Noise"
+
+    def get_quantile_info(self, factor_name):
+        stats = self.resultLoadManager.get_summary_stats(factor_name)['quantile_backtest_processed']
+        returns = self.resultLoadManager.get_factor_test_file( factor_name= factor_name,file_name = 'quantile_returns_processed_21d.parquet')
+        return returns,stats
+
     # 最新版评价因子！挑选因子！
     # 全局ic ir 进行评价！
-    def get_base_passed_factors(self
-                                ):
-        all_factors_summary_data = self.build_factor_icir_data()
+    def get_base_ic_info_passed_factors(self
+                                        ):
+        all_factors_summary_data = self.build_factor_data()
         # --- 2. 执行筛选与画像 ---
         elite_factor_reports = profile_elite_factors(
             all_factors_summary=all_factors_summary_data
@@ -841,7 +1130,7 @@ class FactorSelector:
 
         return passed_phase2_factors
     def get_passed_factor_names(self,   need_filter_rencent_bad: bool = False,force_generate:bool=False) -> List[str]:
-        passed_factor_names = self.get_base_passed_factors()
+        passed_factor_names = self.get_base_ic_info_passed_factors()
         if need_filter_rencent_bad:
             return self.screen_factors_by_recent_rolling_ic(passed_factor_names,force_generate)
         return passed_factor_names
@@ -1002,7 +1291,7 @@ class FactorSelector:
 
         return summary
 
-    def run_complete_selection(self, force_generate: bool = False) -> Tuple[
+    def run_complete_selection(self, force_generate: bool = False,factor_names:list=None) -> Tuple[
         List[str], Dict[str, Any]]:
         """
         第一步：全样本“硬筛选” (Phase 1 - 看简历):
@@ -1034,11 +1323,12 @@ class FactorSelector:
         logger.info("=" * 60)
 
         # 第一步 筛选（base+近期表现
-        passed_factor_names = self.get_passed_factor_names( False, force_generate)
+        passed_factor_names = factor_names
+        # if factor_names is None:
+        #     passed_factor_names = self.get_passed_factor_names( False, force_generate)
         
         passed_factor_stats = self.build_stats_dict(passed_factor_names)
         if not passed_factor_names:
-            logger.warning("警告：没有因子通过基础IC筛选")
             return [], {}
 
         # 第二步：类别内选择
@@ -1137,46 +1427,9 @@ class FactorSelector:
         for _, factor_row in champion_leaderboard.iterrows():
             factor_name = factor_row['factor_name']
             best_period = factor_row['best_period']
+            self.plot_one_factor(factor_name,RESULTS_PATH,TARGET_STOCK_POOL)
+            # print(f"正在为因子 '{factor_name}' (最佳周期: {best_period}) 生成报告...")
 
-            print(f"正在为因子 '{factor_name}' (最佳周期: {best_period}) 生成报告...")
-            print(f"正在为因子 '{factor_name}' 生成报告...")
-            # 2. 生成您需要的报告
-            viz_manager = self.visualization_manager
-            # --- 选项 A：生成最全面的“业绩报告” ---
-            viz_manager.plot_performance_report(
-                backtest_base_on_index=TARGET_STOCK_POOL,
-                factor_name=factor_name,
-                results_path=RESULTS_PATH,
-                default_config='o2o',
-                run_version='latest'
-            )
-
-            # --- 选项 B：生成“特性诊断报告”，深入了解因子自身属性 ---
-            viz_manager.plot_characteristics_report(
-                backtest_base_on_index=TARGET_STOCK_POOL,
-                factor_name=factor_name,
-                results_path=RESULTS_PATH,
-                default_config='o2o',
-                run_version='latest'
-            )
-
-            # --- 选项 C：生成“归因面板”，直观对比预处理前后的效果 ---
-            viz_manager.plot_attribution_panel(
-                backtest_base_on_index=TARGET_STOCK_POOL,
-                factor_name=factor_name,
-                results_path=RESULTS_PATH,
-                default_config='o2o',
-                run_version='latest'
-            )
-
-            # --- 选项 D：生成“核心摘要”，用于快速浏览关键业绩 ---
-            viz_manager.plot_ic_quantile_panel(
-                backtest_base_on_index=TARGET_STOCK_POOL,
-                factor_name=factor_name,
-                results_path=RESULTS_PATH,
-                default_config='o2o',
-                run_version='latest'
-            )
             # # 4.1 生成主报告 (3x2 统一评估报告)
             # # 绘图函数现在需要从硬盘加载数据，我们只需告知关键信息
             # self.visualization_manager.plot_unified_factor_report(
@@ -1450,6 +1703,47 @@ class FactorSelector:
             # turnover_adjusted_score=turnover_adjusted_score
         )
         return factor_stats
+
+    def plot_one_factor(self, factor_name,TARGET_STOCK_POOL):
+        print(f"正在为因子 '{factor_name}' 生成报告...")
+        RESULTS_PATH = workspaces_result_dir
+        # 2. 生成您需要的报告
+        viz_manager = self.visualization_manager
+        # --- 选项 A：生成最全面的“业绩报告” ---
+        viz_manager.plot_performance_report(
+            backtest_base_on_index=TARGET_STOCK_POOL,
+            factor_name=factor_name,
+            results_path=RESULTS_PATH,
+            default_config='o2o',
+            run_version='latest'
+        )
+
+        # --- 选项 B：生成“特性诊断报告”，深入了解因子自身属性 ---
+        viz_manager.plot_characteristics_report(
+            backtest_base_on_index=TARGET_STOCK_POOL,
+            factor_name=factor_name,
+            results_path=RESULTS_PATH,
+            default_config='o2o',
+            run_version='latest'
+        )
+
+        # --- 选项 C：生成“归因面板”，直观对比预处理前后的效果 ---
+        viz_manager.plot_attribution_panel(
+            backtest_base_on_index=TARGET_STOCK_POOL,
+            factor_name=factor_name,
+            results_path=RESULTS_PATH,
+            default_config='o2o',
+            run_version='latest'
+        )
+
+        # --- 选项 D：生成“核心摘要”，用于快速浏览关键业绩 ---
+        viz_manager.plot_ic_quantile_panel(
+            backtest_base_on_index=TARGET_STOCK_POOL,
+            factor_name=factor_name,
+            results_path=RESULTS_PATH,
+            default_config='o2o',
+            run_version='latest'
+        )
 
 
 # 维持配置不变，因为我们会在代码中处理方向
@@ -1828,5 +2122,8 @@ if __name__ == '__main__':
     #     run_version='latest'
     # )
     # get_base_passed_factors(TARGET_UNIVERSE)
-
-    x.run_complete_selection()
+    #
+    # factor_names = x.select_by_factor_quantile_pattern()
+    # x.run_complete_selection(factor_names=factor_names)
+    # x.get_base_ic_info_passed_factors()
+    x.plot_factor_data()

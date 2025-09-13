@@ -8,7 +8,11 @@ Backtrader增强策略 - 完整迁移vectorBT复杂逻辑
 4. 保持原有策略的所有核心逻辑和参数
 """
 import math # 确保导入
+import matplotlib
+import matplotlib.pyplot as plt
+import quantstats as qs
 
+matplotlib.use('Agg')  # 非交互模式，不阻塞
 import warnings
 from datetime import datetime
 from enum import Enum
@@ -199,7 +203,7 @@ class EnhancedFactorStrategy(bt.Strategy):
                     # c. 【核心】更新目标持仓状态变量
                     new_targets = set(daily_ranks.nlargest(num_to_select).index)
                     if self.tomorrow_target_positions != new_targets:
-                        logger.info(f"【调仓日】明日待买目标更新为: {new_targets}")
+                        logger.info(f"【调仓日】明日待买目标数量：{len(new_targets)} 具体: {new_targets}")
                         self.tomorrow_target_positions = new_targets
             except KeyError:
                 raise ValueError(f"在 {current_date} 无法找到因子排名数据。")
@@ -217,7 +221,7 @@ class EnhancedFactorStrategy(bt.Strategy):
         # === 第1步：日常状态更新 ===
         self._daily_state_update()
         self.init_data_for_target_positions_if_rebalance_day()
-        logger.info(f"每天打印明天需要买的今日需要挂单的---.>:{self.tomorrow_target_positions}")
+        # logger.info(f"每天打印明天需要买的今日需要挂单的---.>:{self.tomorrow_target_positions}")
 
         # 1. 【只收集，不执行】收集战术卖出意图
         tactical_sells = self._get_tactical_sell_intentions()
@@ -1488,6 +1492,25 @@ class BacktraderMigrationEngine:
                 end_time = datetime.now()
                 execution_time = (end_time - start_time).total_seconds()
 
+                strategy = strategy_results[0]
+
+                # 3. 【核心】从分析器中，提取出每日收益率序列
+                #    get_analysis() 返回的是一个字典，key是日期，value是当天的收益率
+                #    我们把它转换成一个 pandas.Series，这是 QuantStats 最喜欢的格式
+                daily_returns_dict = strategy.analyzers.time_return.get_analysis()
+                daily_returns_series = pd.Series(daily_returns_dict)
+
+                # 确保索引是 DatetimeIndex
+                daily_returns_series.index = pd.to_datetime(daily_returns_series.index)
+                # 4. 生成一份完整的、漂亮的、可交互的HTML报告
+                #    output 参数会让它保存成一个文件，而不是试图弹出窗口
+                report_path = 'my_strategy_report.html'
+                qs.reports.html(daily_returns_series,
+                                output=report_path,
+                                title='My First Factor Strategy Report')
+
+                logger.info(f"专业的策略表现报告已生成: {report_path}")
+
                 # === 7. 提取结果 ===
                 strategy = strategy_results[0]
                 final_value = cerebro.broker.getvalue()
@@ -1754,26 +1777,6 @@ class A_ShareRoundLotSizer(bt.sizers.PercentSizer):
         return rounded_size
 if __name__ == "__main__":
     print()
-
-
-
-
-#写一个阶乘
-
-
-
-
-
-
-
-
-1
-
-
-
-
-
-
 
 
 

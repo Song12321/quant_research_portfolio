@@ -61,6 +61,16 @@ class ResultLoadManager:
         if start_date is None and end_date is None :
             return df
         return  df.loc[start_date:end_date]
+    def get_factor_test_file (self, factor_name, pool_index=None,start_date=None, end_date=None,file_name=None):
+        if self.is_raw_factor:
+            raise ValueError('暂不支持raw因子数据')
+        pool_index =  self.pool_index if pool_index is None else pool_index
+        factor_self_path = self.get_factor_self_path(pool_index, factor_name)
+        df = pd.read_parquet(factor_self_path / file_name)
+        df.index = pd.to_datetime(df.index)
+        if start_date is None and end_date is None :
+            return df
+        return  df.loc[start_date:end_date]
 
     def get_o2o_return_data(self, stock_pool_index, start_date, end_date, period_days):
         path = self.main_work_path / stock_pool_index /'open_hfq'/ self.version / 'open_hfq.parquet'
