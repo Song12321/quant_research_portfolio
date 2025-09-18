@@ -26,6 +26,7 @@ period_six_year = ('20190710', '20250710')
 period_four_year = ('20210710', '20250710')
 period_behind_three_year = ('20220710', '20250710')
 really_train_period = ('20190328', '20231231')
+really_test_period = ('20240101', '20250710')
 recent_three_train_period = ('20220710', '20250710')
 begin_2year_s_train_period = ('20200101', '20231231')
 period_pre_three_year = ('20190710', '20220710')
@@ -161,6 +162,15 @@ trans_pram =  {
     'period': really_train_period,
     'evaluation': EVAL_SETTING_FULL,  # <--- 【新增】
     'desc': '海量测试环境 zz800股票池+必要过滤  （这是最真实的环境'
+}
+trans_pram =  {
+    'mode': 'massive_test',
+    'pools': {
+        **_massive_test_ZZ800_profile
+    },
+    'period': really_test_period,
+    'evaluation': EVAL_SETTING_FULL,  # <--- 【新增】
+    'desc': '海量测试环境 zz800股票池+必要过滤  （这是最真实的环境实测 '
 }
 
 # trans_pram =  {

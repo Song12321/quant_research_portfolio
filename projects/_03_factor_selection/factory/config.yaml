@@ -728,4 +728,5 @@ factor_definition:
     cal_require_base_fields_from_daily: False # 依赖于其他衍生因子
 
 
+
 #todo  、 大单、...

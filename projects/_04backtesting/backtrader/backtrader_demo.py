@@ -231,6 +231,8 @@ def demo_basic_backtrader():
     # price_dfs, factor_dict = load_data_for_backtrader_demo(['cfp_ratio'])
     s = '20190328'
     e=  '20231231'
+    s='20240101'
+    e='20250710'
     price_dfs = load_price_dfs(s,e)
     fa = load_composite_factor(s,e)
     # price_dfs,fa = generate_mock_data_for_verification()

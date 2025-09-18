@@ -30,6 +30,7 @@ NEW_FACTOR_DIRECTIONS = {
     'total_revenue_growth_yoy_orth_vs_revenue_growth_ttm':1,
     'volatility_120d_orth_vs_ln_turnover_value_90d':-1,
     'value_composite_orth_vs_cfp_ratio':1,
+    'ln_turnover_value_90d_orth_vs_volatility_90d':-1,
 
     # ...
 }

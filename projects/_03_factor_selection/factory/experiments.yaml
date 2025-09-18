@@ -163,13 +163,37 @@
 #- factor_name: 'turnover_42d_std_252d_std_ratio'
 #  stock_pool_name: 'ZZ800'
 
-
-
 #--------------------------------------------------------------------------------------- 模板以上
 ##临时测试
-
 - factor_name: 'lqs_orthogonal_v2'
   stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'amihud_liquidity'
+#  stock_pool_name: 'ZZ800'
+#
+#
+#- factor_name: 'cfp_ratio'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'operating_accruals'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'volatility_120d'
+#  stock_pool_name: 'ZZ800'
+#
+#
+#- factor_name: 'volatility_90d'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'ln_turnover_value_90d'
+#  stock_pool_name: 'ZZ800'
+#
+#
+#- factor_name: 'revenue_growth_ttm'
+#  stock_pool_name: 'ZZ800'
+#
+#- factor_name: 'log_circ_mv'
+#  stock_pool_name: 'ZZ800'
 
 #todo 有问题
 #- factor_name: 'vwap_deviation_20d'
@@ -185,7 +209,6 @@
 #  'turnover_rate',
 #  'roa_ttm',
 #
-
 #  , 'vwap_deviation_20d',
 
 #  'revenue_growth_ttm',

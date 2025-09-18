@@ -488,6 +488,6 @@ def run_test_composite_by_local_rolling_ic(his_snap_config_id):
 
 
 if __name__ == "__main__":
-    # run_test_by_config('o2o_v3')
-    run_test_composite_by_local_rolling_ic('20250906_045625_05e460ab')
+    # run_test_by_config('o2o_v3_检验真理')
+    run_test_composite_by_local_rolling_ic('20250913_222650_e410f4e3')
 

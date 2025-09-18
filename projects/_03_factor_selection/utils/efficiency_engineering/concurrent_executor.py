@@ -293,7 +293,7 @@ if __name__ == "__main__":
         # 'log_circ_mv'  # 市值因子本身
     ]
     #
-    snapshot_config_id = '20250906_045625_05e460ab'
+    snapshot_config_id = '20250913_222650_e410f4e3'
     
     # # 方式1: 单因子并发
     # logger.info("=== 单因子并发模式 ===")
