@@ -1787,7 +1787,7 @@ class BacktraderMigrationEngine:
         return factor_df
 
 
-# === 便捷迁移函数 ===
+# === 便捷迁移函数 ===最新
 
 def one_click_migration(price_dfs:Dict[str, pd.DataFrame], factor_dict: Dict[str, pd.DataFrame],
                         original_vectorbt_config=None) -> Dict:

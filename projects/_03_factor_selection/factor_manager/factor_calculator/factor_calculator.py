@@ -1,4 +1,4 @@
-from typing import Callable  # 引入Callable来指定函数类型的参数
+from typing import Callable, Dict, List  # 引入Callable来指定函数类型的参数
 
 import numpy as np
 import pandas as pd
@@ -11,6 +11,7 @@ from projects._03_factor_selection.factor_manager.factor_calculator.momentum.sw_
 from projects._03_factor_selection.utils.IndustryMap import PointInTimeIndustryMap
 from projects._03_factor_selection.utils.date.trade_date_utils import map_ann_dates_to_tradable_dates
 from quant_lib import logger
+from quant_lib.config.constant_config import LOCAL_PARQUET_DATA_DIR
 
 
 ## 数据统一 tushare 有时候给元 千元 万元!  现在需要达成:统一算元!
@@ -43,6 +44,7 @@ class FactorCalculator:
         # 注意：这里持有 FactorManager 的引用，以便在计算衍生因子时，
         # 可以通过 factor_manager.get_raw_factor() 来获取基础因子，并利用其缓存机制。
         self.factor_manager = factor_manager
+        self._three_low_one_high_financial_l1_codes = None
         print("FactorCalculator (因子计算器) 已准备就绪。")
 
 
@@ -111,6 +113,239 @@ class FactorCalculator:
             denominator_factor='total_mv',
             numerator_must_be_positive=False  # 经营现金流可以是负数
         )
+
+    # === 三低一高 (Three Low One High) ===
+    def _get_three_low_one_high_config(self) -> Dict[str, float]:
+        cfg = {
+            "weight_long_term": 0.7,
+            "weight_short_term": 0.3,
+            "ts_window_months": 60,
+            "ts_rank_min_periods_months": 12,
+            "ts_rank_use_monthly": True,
+            "trading_days_per_month": 22,
+            "attention_amount_window": 20,
+            "improve_shift_days": 252,
+        }
+        data_manager = getattr(self.factor_manager, "data_manager", None)
+        if data_manager is not None:
+            overrides = data_manager.config.get("three_low_one_high", {})
+            if isinstance(overrides, dict):
+                for key in cfg:
+                    if key in overrides:
+                        cfg[key] = overrides[key]
+        return cfg
+
+    @staticmethod
+    def _align_frames(dfs: List[pd.DataFrame]):
+        if not dfs:
+            raise ValueError("三低一高因子对齐失败：未提供任何数据矩阵。")
+
+        common_index = dfs[0].index
+        common_columns = dfs[0].columns
+        for df in dfs[1:]:
+            common_index = common_index.intersection(df.index)
+            common_columns = common_columns.intersection(df.columns)
+
+        if common_index.empty or common_columns.empty:
+            raise ValueError("三低一高因子对齐失败：依赖数据不存在共同日期或股票。")
+
+        aligned = [df.reindex(index=common_index, columns=common_columns) for df in dfs]
+        return common_index, common_columns, aligned
+
+    def _get_financial_l1_codes(self) -> set:
+        if self._three_low_one_high_financial_l1_codes is not None:
+            return self._three_low_one_high_financial_l1_codes
+        try:
+            cols = ["l1_code", "l1_name"]
+            industry_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / "industry_record.parquet", columns=cols)
+            mask = industry_df["l1_name"].astype(str).str.contains("银行|非银|证券|保险|金融")
+            codes = set(industry_df.loc[mask, "l1_code"].dropna().unique())
+        except Exception:
+            codes = set()
+        self._three_low_one_high_financial_l1_codes = codes
+        return codes
+
+    @staticmethod
+    def _ts_rank_df(df: pd.DataFrame, window: int, min_periods: int) -> pd.DataFrame:
+        def _rank_last(values: np.ndarray) -> float:
+            current = values[-1]
+            if np.isnan(current):
+                return np.nan
+            valid = values[~np.isnan(values)]
+            if valid.size == 0:
+                return np.nan
+            return float(np.sum(valid <= current) / valid.size)
+
+        return df.rolling(window=window, min_periods=min_periods).apply(_rank_last, raw=True)
+
+    def _calc_ts_rank(self, df: pd.DataFrame, cfg: Dict[str, float]) -> pd.DataFrame:
+        if not isinstance(df.index, pd.DatetimeIndex):
+            window_days = int(cfg["ts_window_months"] * cfg["trading_days_per_month"])
+            min_periods = int(max(6, window_days * 0.2))
+            return self._ts_rank_df(df, window_days, min_periods)
+
+        if cfg.get("ts_rank_use_monthly", True):
+            monthly = df.resample("M").last()
+            min_periods = int(cfg.get("ts_rank_min_periods_months", max(6, cfg["ts_window_months"] // 5)))
+            rank_m = self._ts_rank_df(monthly, int(cfg["ts_window_months"]), min_periods)
+            return rank_m.reindex(df.index, method="ffill")
+
+        window_days = int(cfg["ts_window_months"] * cfg["trading_days_per_month"])
+        min_periods = int(cfg.get("ts_rank_min_periods_days", max(6, window_days * 0.2)))
+        return self._ts_rank_df(df, window_days, min_periods)
+
+    def _calculate_dv_ttm(self) -> pd.DataFrame:
+        """按需读取本地 daily_basic 中的 TTM 股息率。"""
+        data_manager = self.factor_manager.data_manager
+        loaded = data_manager.data_loader.get_raw_dfs_by_require_fields(
+            fields=["dv_ttm"],
+            buffer_start_date=data_manager.buffer_start_date,
+            end_date=data_manager.backtest_end_date,
+        )
+        return loaded["dv_ttm"]
+
+    def _calculate_three_low_one_high_value(self) -> pd.DataFrame:
+        """
+        三低一高 - 低估值因子：
+        - 短周期: EP/BP/DIVY/EBIT_EV/CFO_YIELD（金融/非金融分组取均值）
+        - 长周期: PE/PB 历史分位 (1 - rank)
+        - 合成: 0.7 长周期 + 0.3 短周期
+        """
+        cfg = self._get_three_low_one_high_config()
+
+        total_mv = self.factor_manager.get_raw_factor("total_mv")
+        net_profit_ttm = self.factor_manager.get_raw_factor("net_profit_ttm")
+        total_equity = self.factor_manager.get_raw_factor("total_equity")
+        cashflow_ttm = self.factor_manager.get_raw_factor("cashflow_ttm")
+
+        ep_ratio = net_profit_ttm / total_mv.replace(0, np.nan)
+        bm_ratio = total_equity / total_mv.replace(0, np.nan)
+        cfo_yield = cashflow_ttm / total_mv.replace(0, np.nan)
+
+        divy = self.factor_manager.get_raw_factor("dv_ttm")
+        ebit_ttm = self.factor_manager.get_raw_factor("ebit_ttm")
+        total_debt = self.factor_manager.get_raw_factor("total_debt")
+        ev = total_mv.add(total_debt, fill_value=np.nan)
+        ebit_ev = ebit_ttm / ev.replace(0, np.nan)
+
+        common_index, common_columns, aligned = self._align_frames(
+            [total_mv, ep_ratio, bm_ratio, cfo_yield, divy, ebit_ev]
+        )
+        total_mv, ep_ratio, bm_ratio, cfo_yield, divy, ebit_ev = aligned
+
+        pe_proxy = 1.0 / ep_ratio.replace(0, np.nan)
+        pb_proxy = 1.0 / bm_ratio.replace(0, np.nan)
+        rank_pe = self._calc_ts_rank(pe_proxy, cfg)
+        rank_pb = self._calc_ts_rank(pb_proxy, cfg)
+        score_ts = 1.0 - (rank_pe + rank_pb) / 2.0
+
+        pit_map = getattr(getattr(self.factor_manager, "data_manager", None), "pit_map", None)
+        fin_codes = self._get_financial_l1_codes()
+        daily_scores = {}
+        for date in common_index:
+            is_fin = None
+            if pit_map is not None and fin_codes:
+                try:
+                    ind_map = pit_map.get_map_for_date(pd.to_datetime(date))
+                except Exception:
+                    ind_map = None
+                if ind_map is not None and not ind_map.empty and "l1_code" in ind_map.columns:
+                    l1 = ind_map["l1_code"].reindex(common_columns)
+                    is_fin = l1.isin(fin_codes)
+
+            fin_list = [bm_ratio.loc[date], ep_ratio.loc[date]]
+            fin_list.append(divy.loc[date])
+
+            nfin_list = [ep_ratio.loc[date], cfo_yield.loc[date], ebit_ev.loc[date]]
+
+            score = pd.Series(index=common_columns, dtype=float)
+            if is_fin is None:
+                score = pd.concat(nfin_list, axis=1).mean(axis=1)
+            else:
+                if fin_list:
+                    score.loc[is_fin] = pd.concat(fin_list, axis=1).mean(axis=1)
+                if nfin_list:
+                    score.loc[~is_fin] = pd.concat(nfin_list, axis=1).mean(axis=1)
+
+            daily_scores[date] = score
+
+        score_cs = pd.DataFrame.from_dict(daily_scores, orient="index")
+        score_cs = score_cs.reindex(index=common_index, columns=common_columns)
+        score_ts = score_ts.reindex(index=common_index, columns=common_columns)
+        return cfg["weight_long_term"] * score_ts + cfg["weight_short_term"] * score_cs
+
+    def _calculate_three_low_one_high_lowprice(self) -> pd.DataFrame:
+        """
+        三低一高 - 低股价因子：
+        0.7 * (1 - 过去5年价格分位) + 0.3 * (当期价格水平)
+        """
+        cfg = self._get_three_low_one_high_config()
+        price = self.factor_manager.get_raw_factor("close_hfq")
+
+        rank_price = self._calc_ts_rank(price, cfg)
+        score_ts = 1.0 - rank_price
+
+        score_cs = -np.log(price.astype(float).clip(lower=0.01))
+        score_ts, score_cs = score_ts.align(score_cs, join="inner", axis=None)
+        return cfg["weight_long_term"] * score_ts + cfg["weight_short_term"] * score_cs
+
+    def _calculate_three_low_one_high_lowattn(self) -> pd.DataFrame:
+        """
+        三低一高 - 低关注因子：
+        使用换手率与20日平均成交额度量交易活跃度，活跃度越低得分越高。
+        """
+        cfg = self._get_three_low_one_high_config()
+        turn = self.factor_manager.get_raw_factor("turnover_rate")
+        amount = self.factor_manager.get_raw_factor("amount")
+        amount_20d = amount.rolling(
+            window=cfg["attention_amount_window"],
+            min_periods=max(5, cfg["attention_amount_window"] // 2),
+        ).mean()
+        metric_dfs = [
+            np.log1p(turn.astype(float).clip(lower=0)),
+            np.log1p(amount_20d.astype(float).clip(lower=0)),
+        ]
+
+        common_index, common_columns, aligned = self._align_frames(metric_dfs)
+        combined = sum(aligned) / len(aligned)
+        return -combined
+
+    def _calculate_three_low_one_high_improve(self) -> pd.DataFrame:
+        """
+        三低一高 - 高改善因子：
+        Improve = 0.6 * ImproveA + 0.4 * ImproveB
+        ImproveA: ΔROE / ΔOPM / FCF shift
+        ImproveB: 现金质量 + 负向应计
+        """
+        cfg = self._get_three_low_one_high_config()
+
+        total_mv = self.factor_manager.get_raw_factor("total_mv")
+        net_profit_ttm = self.factor_manager.get_raw_factor("net_profit_ttm")
+        cashflow_ttm = self.factor_manager.get_raw_factor("cashflow_ttm")
+        total_assets = self.factor_manager.get_raw_factor("total_assets")
+
+        roe_ttm = self.factor_manager.get_raw_factor("roe_ttm")
+        opmargin_ttm = self.factor_manager.get_raw_factor("opmargin_ttm")
+        fcf_ttm = self.factor_manager.get_raw_factor("free_cashflow_ttm")
+
+        common_index, common_columns, aligned = self._align_frames(
+            [total_mv, net_profit_ttm, cashflow_ttm, total_assets, roe_ttm, opmargin_ttm, fcf_ttm]
+        )
+        total_mv, net_profit_ttm, cashflow_ttm, total_assets, roe_ttm, opmargin_ttm, fcf_ttm = aligned
+
+        shift_days = int(cfg["improve_shift_days"])
+        d_roe = roe_ttm - roe_ttm.shift(shift_days)
+        d_opm = opmargin_ttm - opmargin_ttm.shift(shift_days)
+        fcf_shift = (fcf_ttm - fcf_ttm.shift(shift_days)) / total_mv.replace(0, np.nan)
+
+        cash_q = cashflow_ttm / net_profit_ttm.replace(0, np.nan)
+        accrual = (net_profit_ttm - cashflow_ttm) / total_assets.replace(0, np.nan)
+
+        improve_a = (d_roe + d_opm + fcf_shift) / 3.0
+        improve_b = (cash_q - accrual) / 2.0
+
+        improve = 0.6 * improve_a + 0.4 * improve_b
+        return improve.reindex(index=common_index, columns=common_columns)
 
     # === 质量 (Quality) ===
     #ok
@@ -659,6 +894,34 @@ class FactorCalculator:
         该函数逻辑与 _calculate_cashflow_ttm 完全一致，仅替换数据源和字段。
         """
         return  self._calculate_financial_ttm_factor('net_profit_ttm',load_income_df,'n_income_attr_p')
+
+    def _calculate_ebit_ttm(self) -> pd.DataFrame:
+        """
+        计算滚动12个月的EBIT (TTM)。
+        """
+        return self._calculate_financial_ttm_factor('ebit_ttm', load_income_df, 'ebit')
+
+    def _calculate_operate_profit_ttm(self) -> pd.DataFrame:
+        """
+        计算滚动12个月的营业利润 (TTM)。
+        """
+        return self._calculate_financial_ttm_factor('operate_profit_ttm', load_income_df, 'operate_profit')
+
+    def _calculate_free_cashflow_ttm(self) -> pd.DataFrame:
+        """
+        计算滚动12个月的自由现金流 (TTM)。
+        """
+        return self._calculate_financial_ttm_factor('free_cashflow_ttm', load_cashflow_df, 'free_cashflow')
+
+    def _calculate_opmargin_ttm(self) -> pd.DataFrame:
+        """
+        计算滚动12个月的营业利润率 (TTM)。
+        """
+        op_profit_ttm = self.factor_manager.get_raw_factor('operate_profit_ttm')
+        revenue_ttm = self.factor_manager.get_raw_factor('total_revenue_ttm')
+        op_profit_aligned, revenue_aligned = op_profit_ttm.align(revenue_ttm, join='inner', axis=None)
+        revenue_safe = revenue_aligned.where(revenue_aligned != 0)
+        return (op_profit_aligned / revenue_safe).replace([np.inf, -np.inf], np.nan)
 
     def _calculate_total_equity(self) -> pd.DataFrame:
         """

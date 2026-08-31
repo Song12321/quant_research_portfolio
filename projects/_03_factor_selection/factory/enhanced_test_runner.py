@@ -1,6 +1,6 @@
 """
 增强的测试运行器 - 集成配置快照管理
-
+核心测试因子
 核心改进：
 1. 每次测试后自动保存配置快照
 2. 测试结果与配置快照自动关联
@@ -488,6 +488,6 @@ def run_test_composite_by_local_rolling_ic(his_snap_config_id):
 
 
 if __name__ == "__main__":
-    # run_test_by_config('o2o_v3_检验真理')
-    run_test_composite_by_local_rolling_ic('20250913_222650_e410f4e3')
+    run_test_by_config('单因子测试（内部合成三低一高）')
+    # run_test_composite_by_local_rolling_ic('20250913_222650_e410f4e3')
 

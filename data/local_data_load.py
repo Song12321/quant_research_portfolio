@@ -97,7 +97,7 @@ def load_cashflow_df():
     #                           '600439.SH',
     #                           '600461.SH',
     #                           '600610.SH'])]
-    df = df[['ann_date', 'ts_code', 'end_date', 'n_cashflow_act']]
+    df = df[['ann_date', 'ts_code', 'end_date', 'n_cashflow_act', 'free_cashflow']]
     return df
 
 
@@ -108,7 +108,18 @@ def load_income_df():
     df = df.sort_values(by=['ts_code', 'end_date', 'update_flag'], ascending=[True, True, False]).drop_duplicates(
         subset=['ts_code', 'end_date'], keep='first')
     #                                              确认过:单位:元         元
-    df = df[['ann_date', 'ts_code', 'end_date', 'n_income_attr_p','total_revenue','oper_cost']]
+    df = df[
+        [
+            'ann_date',
+            'ts_code',
+            'end_date',
+            'n_income_attr_p',
+            'total_revenue',
+            'oper_cost',
+            'ebit',
+            'operate_profit',
+        ]
+    ]
     return df
 
 def load_fina_indicator_df():

@@ -41,6 +41,22 @@ stock_pool_profiles:
 #      remove_next_day_suspended: true  # 必须剔除次日停牌
 #      remove_next_day_limit_up: true   # 必须剔除次日涨停
 
+  ZZ800:
+    # 启用指数过滤，
+    index_filter:
+      enable: true
+      index_code: '000906.SH'
+
+    filters:
+      # --- 普适性风险过滤 (强制性) ---
+      remove_st: true          # 必须剔除ST股票
+      remove_new_stocks: true  # 必须剔除上市不足6个月的新股
+      adapt_tradeable_matrix_by_suspend_resume: true #适配停经历复牌事件的可交易股票池
+
+      # --- 指标过滤 (针对指数池内部) ---
+      min_liquidity_percentile: 0.10
+      min_market_cap_percentile: 0.05
+
   # ----------------------------------------------------------------------------
   # Profile 2: 全市场观察池 (Full Market Observation Profile)
   # 目标: 为“市场微观派”(量价/情绪)因子，提供一个尽可能广阔，同时剔除了“数据噪音”和“交易幻影”的“淘金”环境。
@@ -331,6 +347,54 @@ factor_definition:
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'  # <--【修正】
     cal_require_base_fields: [ 'cashflow_ttm', 'total_mv' ]
+    cal_require_base_fields_from_daily: False
+
+  - name: 'three_low_one_high_value'
+    style_category: 'value'
+    description: '三低一高-低估值：短期价值组合 + 长期估值分位。'
+    action: 'technical_calcu'
+    time_alignment: 'pre_aligned'
+    cal_require_base_fields: [
+      'total_mv',
+      'net_profit_ttm',
+      'total_equity',
+      'cashflow_ttm',
+      'dv_ttm',
+      'ebit_ttm',
+      'total_debt'
+    ]
+    cal_require_base_fields_from_daily: False
+
+  - name: 'three_low_one_high_lowprice'
+    style_category: 'value'
+    description: '三低一高-低股价：长周期价格分位 + 当期价格水平。'
+    action: 'technical_calcu'
+    time_alignment: 'shift'
+    cal_require_base_fields: [ 'close_hfq' ]
+    cal_require_base_fields_from_daily: True
+
+  - name: 'three_low_one_high_lowattn'
+    style_category: 'value'
+    description: '三低一高-低关注代理：低换手率与低20日平均成交额。'
+    action: 'technical_calcu'
+    time_alignment: 'shift'
+    cal_require_base_fields: [ 'turnover_rate', 'amount' ]
+    cal_require_base_fields_from_daily: True
+
+  - name: 'three_low_one_high_improve'
+    style_category: 'quality'
+    description: '三低一高-高改善：盈利改善与现金质量/应计。'
+    action: 'technical_calcu'
+    time_alignment: 'pre_aligned'
+    cal_require_base_fields: [
+      'total_mv',
+      'net_profit_ttm',
+      'cashflow_ttm',
+      'total_assets',
+      'roe_ttm',
+      'opmargin_ttm',
+      'free_cashflow_ttm'
+    ]
     cal_require_base_fields_from_daily: False
 
 
@@ -675,6 +739,20 @@ factor_definition:
 #量价因子
 
   # === 复合类因子 (Composite) ===
+  - name: 'three_low_one_high'
+    style_category: 'hodgepodge_combo'
+    description: '三低一高合成因子：低估值、低价格、低关注、高改善。'
+    action: 'composite'
+    time_alignment: 'pre_aligned'
+    cal_require_base_fields: [
+      'three_low_one_high_value',
+      'three_low_one_high_lowprice',
+      'three_low_one_high_lowattn',
+      'three_low_one_high_improve'
+    ]
+    weights: [ 0.25, 0.25, 0.25, 0.25 ]
+    cal_require_base_fields_from_daily: False
+
   - name: 'quality_momentum'
     style_category: 'momentum'
     description: '高质量动量。风险调整后的动量因子(120日动量 / 90日波动率)，作为“分析师评级上调”的代理，旨在寻找稳步上涨的股票。'
