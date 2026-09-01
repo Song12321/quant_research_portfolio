@@ -899,15 +899,12 @@ class DataManager:
 
     def get_cal_require_base_fields_for_composite(self, name):
         factor_config = self.get_factor_definition(name)
-        if factor_config['action'].iloc[0] in ['composite', 'composite_by_rolling_ic']:
-            base_fields = factor_config['cal_require_base_fields'].iloc[0]
-            return base_fields
-    def get_per_weights_for_composite(self, name):
-        factor_config = self.get_factor_definition(name)
-        if factor_config['action'].iloc[0] in ['composite', 'composite_by_rolling_ic']:
-            base_fields = factor_config['weights'].iloc[0]
-            return base_fields
-        return None
+        if factor_config.empty:
+            raise ValueError(f"factor_definition 中不存在因子: {name}")
+        action = factor_config['action'].iloc[0]
+        if action != 'composite':
+            raise ValueError(f"因子 {name} 不是等权复合因子，实际 action={action!r}")
+        return factor_config['cal_require_base_fields'].iloc[0]
     # ok #ok
     def create_stock_pool(self, stock_pool_config_profile, pool_name):
         """
@@ -986,8 +983,10 @@ class DataManager:
         return pd.DataFrame(self.config['factor_definition'])
 
     def is_composite_factor(self, factor_name):
-        action = self.get_factor_definition(factor_name).get('action').iloc[0]
-        return action  in ['composite', 'composite_by_rolling_ic'], action=='composite_by_rolling_ic'
+        factor_config = self.get_factor_definition(factor_name)
+        if factor_config.empty:
+            raise ValueError(f"factor_definition 中不存在因子: {factor_name}")
+        return factor_config['action'].iloc[0] == 'composite'
 
     def get_pool_profiles(self):
         return self.config['stock_pool_profiles']

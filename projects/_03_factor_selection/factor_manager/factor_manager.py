@@ -31,6 +31,22 @@ logger = setup_logger(__name__)
 class FactorResultsManager:
     """因子测试结果类"""
 
+    RESULT_KEYS = {
+        "processed_factor_df",
+        "ic_series_periods_dict_processed",
+        "ic_stats_periods_dict_processed",
+        "quantile_returns_series_periods_dict_processed",
+        "q_daily_returns_df_processed",
+        "quantile_stats_periods_dict_processed",
+        "top_q_turnover_stats_periods_dict",
+    }
+    LEGACY_FILE_PATTERNS = (
+        "ic_series_raw_*.parquet",
+        "quantile_returns_raw_*.parquet",
+        "q_daily_returns_df_raw.parquet",
+        "fm_returns_series_*.parquet",
+    )
+
     def __init__(self,
                  **kwargs):
 
@@ -54,115 +70,88 @@ class FactorResultsManager:
                              start_date: str, end_date: str,
                              returns_calculator_func_name: str,  # 新增参数，用于区分 'c2c' 或 'o2o'
                              results: Dict):
-        """
-        将单次因子测试的所有成果，保存到结构化的目录中。
-        """
-        # 1. 创建一个以日期范围命名的、唯一的版本文件夹
+        """严格保存 processed 因子研究产物。"""
+        self._validate_result_contract(results)
         run_version = f"{start_date.replace('-', '')}_{end_date.replace('-', '')}"
-        # 1. 创建清晰的存储路径
         output_path = Path(self.results_dir) / stock_index / factor_name / returns_calculator_func_name / run_version
         output_path.mkdir(parents=True, exist_ok=True)
-
-        # 2. 分解并保存不同的“成果”
-        # a) 保存总结性统计数据
-        ic_stats_periods_dict_raw = results.get("ic_stats_periods_dict_raw", {})
-        ic_stats_periods_dict_processed = results.get("ic_stats_periods_dict_processed", {})
-        quantile_stats_periods_dict_raw = results.get("quantile_stats_periods_dict_raw", {})
-        quantile_stats_periods_dict_processed = results.get("quantile_stats_periods_dict_processed", {})
-        fm_stat_results_periods_dict = results.get("fm_stat_results_periods_dict", {})
-        top_q_turnover_stats_periods_dict = results.get("top_q_turnover_stats_periods_dict", {})
-        style_correlation_dict = results.get("style_correlation_dict", {})
-
-        summary_stats = {
-            'ic_analysis_raw': ic_stats_periods_dict_raw,
-            'ic_analysis_processed': ic_stats_periods_dict_processed,
-            'quantile_backtest_raw': quantile_stats_periods_dict_raw,
-            'quantile_backtest_processed': quantile_stats_periods_dict_processed,
-            'fama_macbeth': fm_stat_results_periods_dict,
-            'top_q_turnover': top_q_turnover_stats_periods_dict,
-            'style_correlation': style_correlation_dict
-        }
-        with open(output_path / 'summary_stats.json', 'w') as f:
-            # 使用自定义的Encoder来处理numpy类型
-            json.dump(self._make_serializable(summary_stats), f, indent=4, cls=NumpyEncoder)
-
-        if "processed_factor_df" in results:
-            results["processed_factor_df"].to_parquet(output_path / 'processed_factor.parquet')
-
-        ic_series_periods_dict_raw = results.get("ic_series_periods_dict_raw", {})
-        ic_series_periods_dict_processed = results.get("ic_series_periods_dict_processed", {})
-
-        q_daily_returns_df_raw = results.get("q_daily_returns_df_raw", None)
-        q_daily_returns_df_processed = results.get("q_daily_returns_df_processed", pd.DataFrame())
-
-        quantile_returns_series_periods_dict_raw = results.get("quantile_returns_series_periods_dict_raw", {})
-        quantile_returns_series_periods_dict_processed = results.get("quantile_returns_series_periods_dict_processed",
-                                                                     {})
-        fm_returns_series_periods_dict = results.get("fm_returns_series_periods_dict", {})
-
-        # b) 保存时间序列数据 (以 Parquet 格式，更高效)
-        if ic_series_periods_dict_raw:
-            for period, series in ic_series_periods_dict_raw.items():
-                df = series.to_frame(name='ic_series_raw')  # 给一列起名，比如 'ic'
-                df.to_parquet(output_path / f'ic_series_raw_{period}.parquet')
-        for period, series in ic_series_periods_dict_processed.items():
-            df = series.to_frame(name='ic_series_processed')  # 给一列起名，比如 'ic'
-            df.to_parquet(output_path / f'ic_series_processed_{period}.parquet')
-        if quantile_returns_series_periods_dict_raw:
-            for period, df in quantile_returns_series_periods_dict_raw.items():
-                df.to_parquet(output_path / f'quantile_returns_raw_{period}.parquet')
-        for period, df in quantile_returns_series_periods_dict_processed.items():
-            df.to_parquet(output_path / f'quantile_returns_processed_{period}.parquet')
-        if q_daily_returns_df_raw is not None and not q_daily_returns_df_raw.empty:
-            q_daily_returns_df_raw.to_parquet(output_path / f'q_daily_returns_df_raw.parquet')
-        q_daily_returns_df_processed.to_parquet(output_path / f'q_daily_returns_df_processed.parquet')
-
-        for period, series in fm_returns_series_periods_dict.items():
-            df = series.to_frame(name='fm_returns_series')
-            df.to_parquet(output_path / f'fm_returns_series_{period}.parquet')
-
+        self._reject_legacy_artifacts(output_path)
+        self._save_summary(output_path, results)
+        self._save_result_frames(output_path, results)
         logger.info(f"✓ 因子'{factor_name}'在配置'{returns_calculator_func_name}'下的所有结果已保存至: {output_path}")
+
+    def _validate_result_contract(self, results: Dict) -> None:
+        missing_keys = self.RESULT_KEYS - results.keys()
+        if missing_keys:
+            raise ValueError(f"processed 因子研究结果缺少字段: {sorted(missing_keys)}")
+        unexpected_keys = results.keys() - self.RESULT_KEYS
+        if unexpected_keys:
+            raise ValueError(f"processed 因子研究结果包含多余字段: {sorted(unexpected_keys)}")
+
+    def _reject_legacy_artifacts(self, output_path: Path) -> None:
+        legacy_files = sorted(
+            path.name
+            for pattern in self.LEGACY_FILE_PATTERNS
+            for path in output_path.glob(pattern)
+        )
+        if legacy_files:
+            raise RuntimeError(
+                f"结果目录含旧 raw/F-M 产物，请先明确归档或清理: "
+                f"path={output_path}, files={legacy_files}"
+            )
+
+    def _save_summary(self, output_path: Path, results: Dict) -> None:
+        summary_stats = {
+            'ic_analysis_processed': results["ic_stats_periods_dict_processed"],
+            'quantile_backtest_processed': results["quantile_stats_periods_dict_processed"],
+            'top_q_turnover': results["top_q_turnover_stats_periods_dict"],
+        }
+        with open(output_path / 'summary_stats.json', 'w', encoding='utf-8') as f:
+            json.dump(
+                self._make_serializable(summary_stats),
+                f,
+                ensure_ascii=False,
+                indent=4,
+                cls=NumpyEncoder,
+            )
+
+    @staticmethod
+    def _save_result_frames(output_path: Path, results: Dict) -> None:
+        results["processed_factor_df"].to_parquet(output_path / 'processed_factor.parquet')
+        for period, series in results["ic_series_periods_dict_processed"].items():
+            series.to_frame(name='ic_series_processed').to_parquet(
+                output_path / f'ic_series_processed_{period}.parquet'
+            )
+        for period, frame in results["quantile_returns_series_periods_dict_processed"].items():
+            frame.to_parquet(output_path / f'quantile_returns_processed_{period}.parquet')
+        results["q_daily_returns_df_processed"].to_parquet(
+            output_path / 'q_daily_returns_df_processed.parquet'
+        )
 
     def _make_serializable(self, obj):
         """将结果转换为可序列化格式"""
         if isinstance(obj, dict):
             return {str(k): self._make_serializable(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
+        if isinstance(obj, list):
             return [self._make_serializable(v) for v in obj]
-        elif isinstance(obj, pd.Series):
-            # 将索引转换为字符串
-            series_dict = {}
-            for k, v in obj.items():
-                key = str(k) if hasattr(k, '__str__') else k
-                series_dict[key] = self._make_serializable(v)
-            return series_dict
-        elif isinstance(obj, pd.DataFrame):
-            # 将索引和列名都转换为字符串
-            df_dict = {}
-            for idx, row in obj.iterrows():
-                row_dict = {}
-                for col, val in row.items():
-                    col_key = str(col) if hasattr(col, '__str__') else col
-                    row_dict[col_key] = self._make_serializable(val)
-                idx_key = str(idx) if hasattr(idx, '__str__') else idx
-                df_dict[idx_key] = row_dict
-            return df_dict
-        elif isinstance(obj, (np.integer, np.floating)):
-            return float(obj)
-        elif isinstance(obj, (np.bool_, bool)):
+        if isinstance(obj, pd.Series):
+            return {str(k): self._make_serializable(v) for k, v in obj.items()}
+        if isinstance(obj, pd.DataFrame):
+            return {
+                str(index): {str(column): self._make_serializable(value) for column, value in row.items()}
+                for index, row in obj.iterrows()
+            }
+        if isinstance(obj, (np.bool_, bool)):
             return bool(obj)
-        elif isinstance(obj, pd.Timestamp):
+        if isinstance(obj, (np.integer, np.floating)):
+            return obj.item()
+        if isinstance(obj, pd.Timestamp):
             return str(obj)
-        elif pd.isna(obj):
+        if pd.isna(obj):
             return None
-        else:
-            try:
-                # 尝试转换为基本Python类型
-                if hasattr(obj, 'item'):  # numpy标量
-                    return obj.item()
-                return obj
-            except:
-                return str(obj)
+        if isinstance(obj, (str, int, float)):
+            return obj
+        raise TypeError(f"无法序列化研究结果类型: {type(obj).__name__}")
 
 
 class FactorManager:

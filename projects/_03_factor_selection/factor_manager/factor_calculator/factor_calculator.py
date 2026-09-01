@@ -1112,62 +1112,6 @@ class FactorCalculator:
         raw_vpt_factor = pct_chg_aligned * vol_hfq_aligned
 
         return raw_vpt_factor
-    #复合类因子
-    # def _calculate_mom5d_mom1d_vol_wei_3_3_4_combo(self) -> pd.DataFrame:
-    #     """
-    #     【新增】计算一个由短期动量和成交量加权合成的复合因子。
-    #
-    #     金融逻辑:
-    #     综合考量价格的短期趋势强度（1日和5日动量）和市场的参与热度（成交量），
-    #     旨在捕捉那些有资金参与的、正在启动的短期趋势。
-    #
-    #     计算公式:
-    #     - 0.3 * Z-Score(5日收益率)
-    #     - 0.3 * Z-Score(1日收益率)
-    #     - 0.4 * Z-Score(后复权成交量)
-    #     """
-    #     """
-    #      【V2 修正版】计算一个由短期动量和成交量加权合成的复合因子。
-    #
-    #      核心修正：
-    #      使用 reindex 方法来稳健地对齐三个及以上的DataFrame。
-    #      """
-    #
-    #     # --- 1. 获取所有基础原材料 ---
-    #     close_hfq = self.factor_manager.get_raw_factor('close_hfq').copy()
-    #     vol_hfq = self.factor_manager.get_raw_factor('vol_hfq').copy()
-    #
-    #     # --- 2. 计算三大核心组件 ---
-    #     mom_5d = close_hfq.pct_change(periods=5)
-    #     mom_1d = close_hfq.pct_change(periods=1)
-    #     volume = vol_hfq
-    #
-    #     # --- 3. 对所有组件进行截面标准化 (Z-Score) ---
-    #     z_mom_5d = cross_sectional_zscore(mom_5d)
-    #     z_mom_1d = cross_sectional_zscore(mom_1d)
-    #     z_volume = cross_sectional_zscore(volume)
-    #
-    #     # a) 找到所有因子共有的日期索引
-    #     common_index = z_mom_5d.index.intersection(z_mom_1d.index).intersection(z_volume.index)
-    #
-    #     # b) 找到所有因子共有的股票代码列
-    #     common_columns = z_mom_5d.columns.intersection(z_mom_1d.columns).intersection(z_volume.columns)
-    #
-    #     # c) 将所有DataFrame规整到这个共同的形状上
-    #     z_mom_5d_aligned = z_mom_5d.reindex(index=common_index, columns=common_columns)
-    #     z_mom_1d_aligned = z_mom_1d.reindex(index=common_index, columns=common_columns)
-    #     z_volume_aligned = z_volume.reindex(index=common_index, columns=common_columns)
-    #
-    #     # --- 5. 按指定权重进行加权合成 ---
-    #     weights = {'mom5d': 0.3, 'mom1d': 0.3, 'vol': 0.4}
-    #     composite_factor = (
-    #             weights['mom5d'] * z_mom_5d_aligned +
-    #             weights['mom1d'] * z_mom_1d_aligned +
-    #             weights['vol'] * z_volume_aligned
-    #     )
-    #
-    #     return composite_factor
-
         # === 新增情绪类因子 (Sentiment) ===
     ##
     # 滚动技术指标类 (价格材料 必须喂给它是连续的

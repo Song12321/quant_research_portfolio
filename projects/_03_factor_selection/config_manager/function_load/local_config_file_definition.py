@@ -58,97 +58,39 @@ class FullQuantConfig:
             }
         }
 
-style_factor_list =  [
-      # 1. 规模 (Size)
-      'circ_mv',              # 基于流通市值，最核心的规模因子
-
-      # 2. 价值 (Value)
-      'bm_ratio',               # 账面市值比(B/P)，Fama-French三因子模型经典成员
-
-      # 3. 质量 (Quality)
-      'roe_ttm',                # 净资产收益率(TTM)，最核心的盈利质量指标
-
-      # 4. 成长 (Growth)
-      'net_profit_growth_ttm',  # TTM净利润同比增长，相比单季度YoY更平滑，代表稳定成长性
-
-      # 5. 动量 (Momentum)
-      'momentum_120d',          # 中期动量（约半年），代表价格趋势
-      'reversal_21d',           # 短期反转，A股市场非常显著的独立效应
-
-      # 6. 风险 (Risk / Volatility)
-      'volatility_90d',         # 90日年化波动率，代表特质风险（低波异象）
-      'beta',                   # Beta系数，代表市场系统性风险
-
-      # 7. 流动性 (Liquidity)
-      'ln_turnover_value_90d'   # 90日日均成交额对数，最核心的流动性/容量指标
-  ]
-# ==============================================================================
-# 【新增】预设因子评价配置模板 (Evaluation Presets)
-# ==============================================================================
-
-# 模板1: 快速测试设置 (Fast/Debug Setting)
-# 只跑一个核心周期，节省时间
+# 运行模式只覆盖正式研究需要的分层数、周期和收益口径。
 EVAL_SETTING_FAST = {
-    "forward_periods": [5,10], # 只跑一个周期
-    "returns_calculator": ['o2o'], # 只用一种计算方式
-    # style_factor_list 可以保持完整，因为它不影响计算速度
-    "style_factor_list": [
-    ]
+    "forward_periods": [5, 10],
+    "returns_calculator": ['o2o'],
 }
 
-# 模板2: 标准研究设置 (Standard Research Setting)
-# 覆盖短、中、长周期，适用于大多数正式研究
 EVAL_SETTING_STANDARD = {
-    "forward_periods": [5, 21, 60], # 短、中、长
-    "returns_calculator": [ 'o2o'], # 对比两种方式
-    "style_factor_list":style_factor_list,
-    "eva_data": ['raw','processed']  # 控制测试哪种数据状态：'raw'(原始)，'processed'(处理后)
-
+    "forward_periods": [5, 21, 60],
+    "returns_calculator": ['o2o'],
 }
 
-# 模板3: 全面批量测试设置 (Massive Test Setting)
-# 最全面的配置，用于最终的、彻底的因子有效性检验
 EVAL_SETTING_FULL = {
     "quantiles": 5,
     "forward_periods": [1, 5, 10, 21, 40, 60, 120],
-    "returns_calculator": [ 'o2o'],
-    "style_factor_list": style_factor_list,
-    "eva_data": ['raw', 'processed']  # 控制测试哪种数据状态：'raw'(原始)，'processed'(处理后)
+    "returns_calculator": ['o2o'],
 }
-# 东
+
 dongbei_SETTING = {
-    "quantiles": 5, # 兼容旧命名
+    "quantiles": 5,
     "forward_periods": [3],
     "returns_calculator": ['o2o'],
-    "style_factor_list": [
-
-    ]
 }
-fast_eva_SETTING = {
-    "quantiles": 5, # 兼容旧命名
-    "forward_periods": [3],
-    "returns_calculator": ['o2o'],
-    "style_factor_list": [
 
-    ],
-    'eva_data':['processed']
-}
 fast_eva_SETTING = {
-    "quantiles": 5, # 兼容旧命名
+    "quantiles": 5,
     "forward_periods": [5],
     "returns_calculator": ['o2o'],
-    "style_factor_list": [
-    ],
-    "eva_data": ['processed']  # 控制测试哪种数据状态：'raw'(原始)，'processed'(处理后)
 }
 
 really_eva_SETTING = {
-    "quantiles": 5, # 兼容旧命名
+    "quantiles": 5,
     "forward_periods": [21],
     "returns_calculator": ['o2o'],
-    "style_factor_list": [
-    ],
-    "eva_data": ['processed']  # 控制测试哪种数据状态：'raw'(原始)，'processed'(处理后)
 }
 # ==============================================================================
 # 预设股票池模板 (Stock Pool Presets)

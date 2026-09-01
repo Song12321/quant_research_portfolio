@@ -164,26 +164,6 @@ evaluation:
   #  forward_periods: [1, 5, 10, 21, 40, 60, 120]
 
   returns_calculator: [ 'o2o' ]  # 已移除有问题的c2c计算方法
-  style_factor_list: [
-
-  ]
-  eva_data: ['raw', 'processed']  # 控制测试数据状态：'raw'(原始)，'processed'(处理后)
-
-# 因子选择设置
-factor_selection:
-  correlation_threshold: 0.5  # 相关性阈值，高于此值的因子对视为高相关
-
-# 因子合成设置
-factor_combination:
-  weight_method: 'equal'  # 权重方法：'equal'(等权重)或'ir'(IR加权) todo 后期改成ir加权
-
-# 其他回测设置
-other_backtest:
-  rebalance_freq: 'week'  # 调仓频率: day, week, month, quarter
-  n_stocks: 50  # 持仓股票数量
-  fee_rate: 0.0016  # 交易费率
-  slippage: 0.0012  # 滑点
-  benchmark: '000300.SH'  # 基准指数
 
 
   # 因子定义
@@ -750,7 +730,6 @@ factor_definition:
       'three_low_one_high_lowattn',
       'three_low_one_high_improve'
     ]
-    weights: [ 0.25, 0.25, 0.25, 0.25 ]
     cal_require_base_fields_from_daily: False
 
   - name: 'quality_momentum'
@@ -760,50 +739,13 @@ factor_definition:
     time_alignment: 'shift' # 其成分因子均为shift类型，故也为shift
     cal_require_base_fields: [ 'momentum_120d', 'volatility_90d' ]
     cal_require_base_fields_from_daily: False # 依赖于其他衍生因子
-  #---大杂烩复合因子！
-  - name: 'mom5d_mom1d_vol_wei_3_3_4_combo'
-    style_category: 'hodgepodge_combo'
-    description: 'xx 见factor_calculator 负向ic 居然在60d调仓表现更好！'
-    action: 'composite'
-    time_alignment: 'shift' # 其成分因子均为shift类型，故也为shift
-    cal_require_base_fields: [ 'momentum_1d','momentum_5d', 'vol_hfq']
-    weights: [ 0.3,0.3,0.4]
-    cal_require_base_fields_from_daily: False
-
   - name: 'value_composite'
     style_category: 'value'
-    description: '价值合成因子，通过对bm_ratio, ep_ratio, sp_ratio等多个价值因子进行打分、标准化后再合成，旨在创建一个更稳健的价值度量。'
+    description: 'bm_ratio、sp_ratio、ep_ratio 预处理后的等权价值合成因子。'
     action: 'composite'
     time_alignment: 'pre_aligned'   # 代码 不会走get_factor_for_analusis. 所以不用用到这个字段！
     cal_require_base_fields: [ 'bm_ratio', 'sp_ratio', 'ep_ratio' ]
     cal_require_base_fields_from_daily: False
-
-  # 合成 rolling
-  - name: 'my_composite'
-    style_category: 'quality'
-    description: '利用log_circ_mv'
-    action: 'composite_by_rolling_ic'
-    time_alignment: None # 合成因子，也不会用到这个字段，所以随便写
-    cal_require_base_fields: [ 'log_circ_mv','volatility_40d' ]
-    cal_require_base_fields_from_daily: False # 依赖于其他衍生因子
-
-  # 合成 rolling
-  - name: 'lqs_orthogonal_v1'
-    style_category: 'turnover-compostite'
-    description: 'v1测试查看合成之后的表现'
-    action: 'composite_by_rolling_ic'
-    time_alignment: None # 合成因子，也不会用到这个字段，所以随便写
-    cal_require_base_fields: ['volatility_40d','sp_ratio','earnings_stability','cfp_ratio','ep_ratio']
-    cal_require_base_fields_from_daily: False # 依赖于其他衍生因子
-
-  # 合成 rolling
-  - name: 'lqs_orthogonal_v2'
-    style_category: 'turnover-compostite'
-    description: 'v2测试查看合成之后的表现'
-    action: 'composite_by_rolling_ic'
-    time_alignment: None # 合成因子，也不会用到这个字段，所以随便写
-    cal_require_base_fields: ['amihud_liquidity','cfp_ratio','operating_accruals','volatility_120d','volatility_90d','ln_turnover_value_90d','revenue_growth_ttm','log_circ_mv']
-    cal_require_base_fields_from_daily: False # 依赖于其他衍生因子
 
 
 

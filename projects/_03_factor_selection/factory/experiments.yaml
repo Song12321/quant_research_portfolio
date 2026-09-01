@@ -167,9 +167,6 @@
 ##临时测试
 - factor_name: 'three_low_one_high'
   stock_pool_name: 'ZZ800'
-#- factor_name: 'lqs_orthogonal_v2'
-#  stock_pool_name: 'ZZ800'
-#
 #- factor_name: 'amihud_liquidity'
 #  stock_pool_name: 'ZZ800'
 #

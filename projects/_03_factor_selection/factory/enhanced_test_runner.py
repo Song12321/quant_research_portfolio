@@ -1,493 +1,128 @@
-"""
-增强的测试运行器 - 集成配置快照管理
-核心测试因子
-核心改进：
-1. 每次测试后自动保存配置快照
-2. 测试结果与配置快照自动关联
-3. 提供配置回溯和对比功能
-4. 测试历史的完整追踪
+"""按 experiments.yaml 批量运行 processed 因子研究。"""
 
-使用方式：
-- 替代原有的example_usage.py
-- 完全兼容原有测试流程
-- 自动化配置管理，无需手动干预
-"""
-import alphalens as al
-
-import traceback
-from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Callable
+from pathlib import Path
+from typing import Dict, List
 
-import pandas as pd
-
-from projects._03_factor_selection.config_manager.function_load.load_config_file import _load_local_config_functional
-# 原有的导入
-from projects._03_factor_selection.data_manager.data_manager import DataManager
-from projects._03_factor_selection.factor_manager.factor_analyzer.factor_analyzer import FactorAnalyzer
-from projects._03_factor_selection.factor_manager.factor_manager import FactorManager
-
-# 新增：配置快照管理器
+from projects._03_factor_selection.config_manager.base_config import workspaces_result_dir
 from projects._03_factor_selection.config_manager.config_snapshot.config_snapshot_manager import (
-    ConfigSnapshotManager
+    ConfigSnapshotManager,
 )
+from projects._03_factor_selection.data_manager.data_manager import DataManager
+from projects._03_factor_selection.factor_manager.factor_analyzer.factor_analyzer import (
+    FactorAnalyzer,
+)
+from projects._03_factor_selection.factor_manager.factor_manager import FactorManager
+from quant_lib.config.logger_config import log_success, setup_logger
 
-from quant_lib.config.logger_config import setup_logger, log_success
 
-# 配置日志
 logger = setup_logger(__name__)
 
 
 class EnhancedTestRunner:
-    """增强的测试运行器"""
-    
+    """初始化一次研究环境，并严格顺序执行配置中的因子。"""
+
     def __init__(self):
-        """
-        初始化测试运行器
-        
-        Args:
-            config_path: 主配置文件路径
-            experiments_config_path: 实验配置文件路径
-        """
-        current_dir = Path(__file__).parent
-        config_path = str(current_dir / 'config.yaml')
-        experiments_config_path = str(current_dir / 'experiments.yaml')
-        self.config_path = Path(config_path)
-        self.experiments_config_path = Path(experiments_config_path)
-        self.workspace_root = self.config_path.parent.parent / "workspace"
-        
-        # 初始化配置快照管理器
-        self.config_snapshot_manager = ConfigSnapshotManager()
-        
-        # 加载配置
-        self.config = _load_local_config_functional(str(self.config_path))
-        
-        # 初始化核心组件
+        config_dir = Path(__file__).parent
+        self.config_path = config_dir / "config.yaml"
+        self.experiments_config_path = config_dir / "experiments.yaml"
+        self.snapshot_manager = ConfigSnapshotManager()
+        self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.data_manager = None
         self.factor_manager = None
         self.factor_analyzer = None
-        
-        # 当前测试会话信息
-        self.current_session = {
-            'session_id': datetime.now().strftime('%Y%m%d_%H%M%S'),
-            'test_count': 0,
-            'snapshot_id': None
-        }
-    
-    def initialize_managers(self):
-        """初始化各种管理器"""
-        logger.info("🔄 开始初始化测试环境...")
-        
-        # 初始化数据管理器
-        logger.info("1. 初始化数据管理器...")
+
+    def initialize_managers(self) -> None:
         self.data_manager = DataManager(
-            config_path=str(self.config_path), 
-            experiments_config_path=str(self.experiments_config_path)
+            config_path=str(self.config_path),
+            experiments_config_path=str(self.experiments_config_path),
         )
         self.data_manager.prepare_basic_data()
-
-        # 初始化因子管理器
-        logger.info("2. 初始化因子管理器...")
         self.factor_manager = FactorManager(self.data_manager)
         self.factor_manager.clear_cache()
+        self.factor_analyzer = FactorAnalyzer(self.factor_manager)
 
-        # 初始化因子分析器
-        logger.info("3. 初始化因子分析器...")
-        self.factor_analyzer = FactorAnalyzer(factor_manager=self.factor_manager)
-        
-        logger.info("✅ 测试环境初始化完成")
-    
-    def create_session_snapshot(self, session_description: str = ""):
-        """为当前测试会话创建配置快照"""
-        try:
-            logger.info("📸 创建测试会话配置快照...")
-            
-            # 构建快照名称
-            snapshot_name = f"测试会话_{self.current_session['session_id']}"
-            if session_description:
-                snapshot_name += f"_{session_description}"
-            
-            # 创建测试上下文
-            experiments_df = self.data_manager.get_experiments_df()
-            test_context = {
-                'session_id': self.current_session['session_id'],
-                'session_description': session_description,
-                'total_experiments': len(experiments_df),
-                'factor_names': experiments_df['factor_name'].unique().tolist(),
-                'stock_pools': experiments_df['stock_pool_name'].unique().tolist(),
-                'backtest_period': f"{self.config.get('backtest', {}).get('start_date')} - {self.config.get('backtest', {}).get('end_date')}",
-                'created_by': 'EnhancedTestRunner',
-                'runtime_modifications': self._detect_runtime_modifications()
-            }
-            
-            # 创建快照
-            snapshot_id = self.config_snapshot_manager.create_snapshot(
-                config=self.config,
-                snapshot_name=snapshot_name,
-                test_context=test_context
-            )
-            
-            self.current_session['snapshot_id'] = snapshot_id
-            logger.info(f"✅ 配置快照创建完成: {snapshot_id}")
-            
-            return snapshot_id
-            
-        except Exception as e:
-            raise ValueError("创建配置快照失败") from e
-
-    def _init_and_test(
-            self,
-            session_description: str,
-            test_func: Callable[..., Any],
-            **test_kwargs
-    ) -> List[Dict]:
-        """
-        通用批量因子测试模板
-
-        Args:
-            session_description: 测试会话描述
-            test_func: 具体的测试执行函数（单因子/组合因子）
-            test_kwargs: 传给 test_func 的额外参数
-
-        Returns:
-            List[Dict]: 测试结果列表
-        """
-        logger.info(f"🚀 开始测试-会话: {session_description}")
-
-        # 1. 初始化管理器
-        self.initialize_managers()
-
-        # 2. 创建会话配置快照
-        session_snapshot_id = self.create_session_snapshot(session_description)
-        if not session_snapshot_id:
-            raise ValueError("⚠️ 配置快照创建失败，继续测试但无法追踪配置")
-
-        # 3. 准备实验配置
-        experiments_df = self.data_manager.get_experiments_df()
-        logger.info(f"📊 准备执行 {len(experiments_df)} 个实验")
-
-        # 4. 保存价格数据
-        self._save_prices_hfq_if_needed(experiments_df)
-
-        # 5. 执行批量测试
-        results = []
-        successful_tests = 0
-        stock_pool_name = experiments_df.iloc[0]['stock_pool_name']
-
-        for index, config in experiments_df.iterrows():
-            try:
-                factor_name = config['factor_name']
-                stock_pool_name = config['stock_pool_name']
-
-                logger.info(
-                    f"🧪 [{index + 1}/{len(experiments_df)}] 测试因子: {factor_name} (股票池: {stock_pool_name})"
-                )
-
-                # 执行单个因子测试
-                test_result = test_func(
-                    factor_name=factor_name,
-                    stock_pool_name=stock_pool_name,
-                    session_snapshot_id=session_snapshot_id,
-                    **test_kwargs
-                )
-
-                results.append({
-                    'factor_name': factor_name,
-                    'stock_pool_name': stock_pool_name,
-                    'result': test_result,
-                    'snapshot_id': session_snapshot_id,
-                    'test_timestamp': datetime.now().isoformat()
-                })
-
-                successful_tests += 1
-                self.current_session['test_count'] += 1
-
-                logger.info(f"✅ [{index + 1}/{len(experiments_df)}] 因子 {factor_name} 测试完成")
-
-            except Exception as e:
-                logger.error(f"❌ [{index + 1}/{len(experiments_df)}] 因子 {factor_name} 测试失败: {e}")
-                results.append({
-                    'factor_name': factor_name,
-                    'stock_pool_name': stock_pool_name,
-                    'result': None,
-                    'error': str(e),
-                    'snapshot_id': session_snapshot_id,
-                    'test_timestamp': datetime.now().isoformat()
-                })
-
-                if not self._should_stop_on_error():
-                    raise ValueError("⚠️ 遇到错误，停止批量测试")
-
-        # 6. 生成测试会话摘要
-        self._generate_session_summary(results, successful_tests, session_snapshot_id)
-
-        log_success(f"✅ 测试会话完成: 成功 {successful_tests}/{len(experiments_df)} 个因子")
-        return results
-
-    def init_and_test_for_simple(self, session_description: str = "批量因子测试") -> List[Dict]:
-        return self._init_and_test(
-            session_description=session_description,
-            test_func=self._run_single_factor_test
-        )
-
-    def init_and_test_for_smart_composite(self, session_description: str = "ic集权合成因子测试", his_snap_config_id: str = None) -> List[Dict]:
-        return self._init_and_test(
-            session_description=session_description,
-            test_func=self._run_composite_test_for_smart_composite,
-            his_snap_config_id=his_snap_config_id
-        )
-
-    def _run_single_factor_test(self, factor_name, stock_pool_name, session_snapshot_id):
-        return self._run_factor_test(
-            factor_name,
-            stock_pool_name,
-            session_snapshot_id,
-            test_func=self.factor_analyzer.test_factor_entity_service_route
-        )
-
-    def _run_factor_test(
-            self,
-            factor_name: str,
-            stock_pool_name: str,
-            session_snapshot_id: Optional[str],
-            test_func: Callable[..., Any],
-            **test_kwargs
-    ) -> Any:
-        """
-        执行因子测试并关联配置快照（通用模板）
-
-        Args:
-            factor_name: 因子名称
-            stock_pool_name: 股票池名称
-            session_snapshot_id: 会话配置快照ID
-            test_func: 具体的因子测试函数
-            test_kwargs: 额外传入测试函数的参数
-
-        Returns:
-            测试结果
-        """
-        # 执行因子测试
-        test_result = test_func(
-            factor_name=factor_name,
-            stock_pool_index_name=stock_pool_name,
-            **test_kwargs
-        )
-
-        # 关联配置快照
-        if session_snapshot_id:
-            try:
-                stock_pool_index = self.factor_manager.data_manager.get_stock_pool_index_code_by_name(stock_pool_name)
-
-                success = self.config_snapshot_manager.link_test_result(
-                    snapshot_id=session_snapshot_id,
-                    factor_name=factor_name,
-                    stock_pool=stock_pool_index,
-                    calc_type='o2o',
-                    version=f"{self.data_manager.backtest_start_date}_{self.data_manager.backtest_end_date}",
-                    test_description=f"批量测试_{self.current_session['session_id']}"
-                )
-
-                if success:
-                    logger.debug(f"✅ 配置快照关联成功: {factor_name} -> {session_snapshot_id}")
-                else:
-                    logger.warning(f"⚠️ 配置快照关联失败: {factor_name}")
-
-            except Exception as e:
-                logger.error(f"❌ 配置快照关联异常: {factor_name} - {e}")
-
-        return test_result
-
-    def _run_composite_test_for_smart_composite(self, factor_name, stock_pool_name, session_snapshot_id, his_snap_config_id):
-        return self._run_factor_test(
-            factor_name,
-            stock_pool_name,
-            session_snapshot_id,
-            test_func=self.factor_analyzer.test_factor_entity_service_by_smart_composite,
-            his_snap_config_id=his_snap_config_id
-        )
-    def _save_prices_hfq_if_needed(self, experiments_df: pd.DataFrame,price_type=None):
-        self._save_price_hfq_if_needed(experiments_df, price_type="close_hfq")
-        self._save_price_hfq_if_needed(experiments_df, price_type="open_hfq")
-        self._save_price_hfq_if_needed(experiments_df, price_type="high_hfq")
-        self._save_price_hfq_if_needed(experiments_df, price_type="low_hfq")
-
-    def _save_price_hfq_if_needed(self, experiments_df: pd.DataFrame,price_type=None):
-        if price_type == None:
-            raise ValueError("⚠️ 价格类型未指定，无法保存价格数据")
-        try:
-            # 获取第一个实验的股票池（用于保存价格数据）
-            first_stock_pool = experiments_df.iloc[0]['stock_pool_name']#这句话 就限制了 第一个实验的股票池 ：即：当前设计 不不支持一次实验使用多个不同的股票池！
-            stock_pool_index_code = self.factor_manager.data_manager.get_stock_pool_index_code_by_name(first_stock_pool)
-            
-            price_hfq = self.factor_manager.get_prepare_aligned_factor_for_analysis(price_type, first_stock_pool, True)
-
-            if price_hfq is None:
-                raise ValueError("price_hfq 数据为空，无法保存")
-            
-            path = Path(
-                r"D:\lqs\codeAbout\py\Quantitative\import_file\quant_research_portfolio\workspace\result"
-            ) / stock_pool_index_code / price_type / f'{self.data_manager.backtest_start_date}_{self.data_manager.backtest_end_date}'
-            
-            path.mkdir(parents=True, exist_ok=True)
-            price_hfq.to_parquet(path / f'{price_type}.parquet')
-            logger.info(f"📊 价格数据保存成功: {path} / {price_type}.parquet'")
-            
-        except Exception as e:
-            raise ValueError(f"⚠️ 价格数据保存失败:") from e
-    
-    def _detect_runtime_modifications(self) -> Dict[str, Any]:
-        """检测运行时的配置修改"""
-        # 这里可以实现检测运行时配置修改的逻辑
-        # 例如：对比原始配置文件和当前配置的差异
-        modifications = {
-            'detected_at': datetime.now().isoformat(),
-            'modifications': [],
-            'notes': '暂未实现运行时修改检测'
+    def create_session_snapshot(self, description: str) -> str:
+        experiments = self.data_manager.get_experiments_df()
+        context = {
+            "session_id": self.session_id,
+            "description": description,
+            "factor_names": experiments["factor_name"].tolist(),
+            "stock_pools": experiments["stock_pool_name"].tolist(),
         }
-        return modifications
-    
-    def _should_stop_on_error(self) -> bool:
-        """判断是否在遇到错误时停止测试"""
-        # 可以根据配置或者错误类型来决定
-        return True
-    
-    def _generate_session_summary(
-        self, 
-        results: List[Dict], 
-        successful_tests: int,
-        snapshot_id: Optional[str]
-    ):
-        """生成测试会话摘要"""
-        try:
-            summary = {
-                'session_id': self.current_session['session_id'],
-                'snapshot_id': snapshot_id,
-                'timestamp': datetime.now().isoformat(),
-                'total_tests': len(results),
-                'successful_tests': successful_tests,
-                'failed_tests': len(results) - successful_tests,
-                'success_rate': successful_tests / len(results) if results else 0,
-                'factors_tested': [r['factor_name'] for r in results],
-                'stock_pools_used': list(set(r['stock_pool_name'] for r in results)),
-                'test_duration': 'unknown',  # 可以添加计时逻辑
-                'config_snapshot_id': snapshot_id
-            }
-            
-            # 保存会话摘要
-            summary_path = self.workspace_root / "test_sessions" / f"session_{self.current_session['session_id']}.json"
-            summary_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            import json
-            with open(summary_path, 'w', encoding='utf-8') as f:
-                json.dump(summary, f, ensure_ascii=False, indent=2)
-            
-            logger.info(f"📋 测试会话摘要已保存: {summary_path}")
-            
-            # 打印摘要
-            self._print_session_summary(summary)
-            
-        except Exception as e:
-            logger.error(f"❌ 生成会话摘要失败: {e}")
-    
-    def _print_session_summary(self, summary: Dict):
-        """打印测试会话摘要"""
-        print(f"\n{'='*60}")
-        print(f"📊 测试会话摘要")
-        print(f"{'='*60}")
-        print(f"🆔 会话ID: {summary['session_id']}")
-        print(f"📸 配置快照: {summary['snapshot_id']}")
-        print(f"⏰ 完成时间: {summary['timestamp']}")
-        print(f"🧪 测试总数: {summary['total_tests']}")
-        print(f"✅ 成功数量: {summary['successful_tests']}")
-        print(f"❌ 失败数量: {summary['failed_tests']}")
-        print(f"📈 成功率: {summary['success_rate']:.1%}")
-        
-        print(f"\n📋 测试的因子:")
-        for factor in summary['factors_tested']:
-            print(f"  • {factor}")
-        
-        print(f"\n📊 使用的股票池:")
-        for pool in summary['stock_pools_used']:
-            print(f"  • {pool}")
-        
-        print(f"{'='*60}")
-    
-    def get_test_history(self, limit: int = 10) -> List[Dict]:
-        """获取测试历史"""
-        try:
-            sessions_dir = self.workspace_root / "test_sessions"
-            if not sessions_dir.exists():
-                return []
-            
-            sessions = []
-            for session_file in sessions_dir.glob("session_*.json"):
-                try:
-                    import json
-                    with open(session_file, 'r', encoding='utf-8') as f:
-                        session_data = json.load(f)
-                        sessions.append(session_data)
-                except Exception as e:
-                    logger.warning(f"读取会话文件失败 {session_file}: {e}")
-            
-            # 按时间倒序排序
-            sessions.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
-            return sessions[:limit]
-            
-        except Exception as e:
-            logger.error(f"获取测试历史失败: {e}")
-            return []
-    
-    def compare_test_configs(self, session_id1: str, session_id2: str) -> Dict:
-        """比较两个测试会话的配置差异"""
-        # 先获取两个会话的快照ID
-        sessions = self.get_test_history(limit=50)
-        
-        snapshot_id1 = None
-        snapshot_id2 = None
-        
-        for session in sessions:
-            if session['session_id'] == session_id1:
-                snapshot_id1 = session.get('snapshot_id')
-            elif session['session_id'] == session_id2:
-                snapshot_id2 = session.get('snapshot_id')
-        
-        if not snapshot_id1 or not snapshot_id2:
-            return {'error': '找不到对应的配置快照'}
-        
-        # 比较配置差异
-        return self.config_snapshot_manager.compare_configs(snapshot_id1, snapshot_id2)
-
-#单因子测试主入口
-def run_test_by_config(session_description):
-    """主函数 - 使用增强的测试运行器"""
-    try:
-
-        # 创建增强的测试运行器
-        test_runner = EnhancedTestRunner()
-        
-        # 运行批量测试
-        results = test_runner.init_and_test_for_simple(
-            session_description=session_description
+        snapshot_id = self.snapshot_manager.create_snapshot(
+            config=self.data_manager.config,
+            snapshot_name=f"因子研究_{self.session_id}",
+            test_context=context,
         )
-        
-        # 输出最终结果
-        logger.info(f"🎉 测试完成！共处理 {len(results)} 个因子")
-        
-        return results
-        
-    except Exception as e:
-        logger.error(f"❌ 测试运行失败: {e}")
-        traceback.print_exc()
-        raise
+        if not snapshot_id:
+            raise RuntimeError("配置快照创建失败，因子研究已停止")
+        return snapshot_id
 
-def run_test_composite_by_local_rolling_ic(his_snap_config_id):
-    try:
-        EnhancedTestRunner().init_and_test_for_smart_composite(his_snap_config_id=his_snap_config_id)
-    except Exception as e:
-        raise e
+    def run(self, description: str = "processed 因子研究") -> List[Dict]:
+        self.initialize_managers()
+        experiments = self.data_manager.get_experiments_df()
+        if experiments.empty:
+            raise ValueError("experiments.yaml 未配置任何因子研究任务")
+
+        snapshot_id = self.create_session_snapshot(description)
+        self._save_prices(experiments["stock_pool_name"].unique().tolist())
+        results = []
+        for row in experiments.itertuples(index=False):
+            research_result = self.factor_analyzer.test_factor_entity_service_route(
+                factor_name=row.factor_name,
+                stock_pool_index_name=row.stock_pool_name,
+            )
+            self._link_result(snapshot_id, row.factor_name, row.stock_pool_name)
+            results.append(
+                {
+                    "factor_name": row.factor_name,
+                    "stock_pool_name": row.stock_pool_name,
+                    "result": research_result,
+                    "snapshot_id": snapshot_id,
+                }
+            )
+        log_success(f"因子研究完成: {len(results)} 个因子")
+        return results
+
+    def _link_result(self, snapshot_id: str, factor_name: str, pool_name: str) -> None:
+        pool_code = self.data_manager.get_stock_pool_index_code_by_name(pool_name)
+        linked = self.snapshot_manager.link_test_result(
+            snapshot_id=snapshot_id,
+            factor_name=factor_name,
+            stock_pool=pool_code,
+            calc_type="o2o",
+            version=(
+                f"{self.data_manager.backtest_start_date}_"
+                f"{self.data_manager.backtest_end_date}"
+            ),
+            test_description=f"批量测试_{self.session_id}",
+        )
+        if not linked:
+            raise RuntimeError(f"配置快照关联失败: factor={factor_name}, pool={pool_name}")
+
+    def _save_prices(self, pool_names: List[str]) -> None:
+        for pool_name in pool_names:
+            pool_code = self.data_manager.get_stock_pool_index_code_by_name(pool_name)
+            version = (
+                f"{self.data_manager.backtest_start_date}_"
+                f"{self.data_manager.backtest_end_date}"
+            )
+            for price_type in ("close_hfq", "open_hfq", "high_hfq", "low_hfq"):
+                price = self.factor_manager.get_prepare_aligned_factor_for_analysis(
+                    price_type, pool_name, True
+                )
+                if price is None or price.empty:
+                    raise ValueError(f"价格数据为空: pool={pool_name}, field={price_type}")
+                output_dir = workspaces_result_dir / pool_code / price_type / version
+                output_dir.mkdir(parents=True, exist_ok=True)
+                price.to_parquet(output_dir / f"{price_type}.parquet")
+
+
+def run_test_by_config(session_description: str = "processed 因子研究") -> List[Dict]:
+    """正式批量研究入口。"""
+    return EnhancedTestRunner().run(session_description)
 
 
 if __name__ == "__main__":
-    run_test_by_config('单因子测试（内部合成三低一高）')
-    # run_test_composite_by_local_rolling_ic('20250913_222650_e410f4e3')
-
+    run_test_by_config()

@@ -1,8 +1,8 @@
-"""
-factory ģ��
-"""
+"""因子研究正式入口。"""
 
-from projects._03_factor_selection.factory.strategy_factory import (
-StrategyFactory
+from projects._03_factor_selection.factory.enhanced_test_runner import (
+    EnhancedTestRunner,
+    run_test_by_config,
 )
-_all = ['StrategyFactory']
+
+__all__ = ["EnhancedTestRunner", "run_test_by_config"]
