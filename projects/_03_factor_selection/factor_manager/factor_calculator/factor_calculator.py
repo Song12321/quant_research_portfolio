@@ -1898,25 +1898,25 @@ class FactorCalculator:
 
     ##基础换算！
     def _calculate_circ_mv(self):
-        circ_mv = self.factor_manager.data_manager.raw_dfs['circ_mv'].copy(deep=True)#这里会递归啊，所以一定要开缓存，这样下此调用会走缓存！
+        circ_mv = self.factor_manager.data_manager.get_raw_field('circ_mv').copy(deep=True)
         circ_mv = circ_mv * 10000
         return circ_mv
     def _calculate_total_mv(self):
-        total_mv = self.factor_manager.data_manager.raw_dfs['total_mv'].copy(deep=True)#这里会递归啊，所以一定要开缓存，这样下此调用会走缓存！
+        total_mv = self.factor_manager.data_manager.get_raw_field('total_mv').copy(deep=True)
         total_mv = total_mv * 10000
         return total_mv
     def _calculate_amount(self):
-        amount = self.factor_manager.data_manager.raw_dfs['amount'].copy(deep=True)#这里会递归啊，所以一定要开缓存，这样下此调用会走缓存！
+        amount = self.factor_manager.data_manager.get_raw_field('amount').copy(deep=True)
         amount = amount * 1000
         return amount
     def _calculate_turnover_rate(self):
-        turnover_rate = self.factor_manager.data_manager.raw_dfs['turnover_rate'].copy(deep=True)
+        turnover_rate = self.factor_manager.data_manager.get_raw_field('turnover_rate').copy(deep=True)
         turnover_rate = turnover_rate / 100
         return turnover_rate
     ###标准内部件
 
     def _calculate_vol_raw(self):
-        return self.factor_manager.data_manager.raw_dfs['vol_raw'].copy(deep=True) * 100 # 成交量 vol 的单位是 手 (1手 = 100股)，需要乘以 100 换算成 股。
+        return self.factor_manager.data_manager.get_raw_field('vol_raw').copy(deep=True) * 100 # 成交量 vol 的单位是 手 (1手 = 100股)，需要乘以 100 换算成 股。
 
     ##
     #  目前用于 计算adj_factor 必须是ffill#

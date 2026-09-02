@@ -17,7 +17,7 @@ import pandas as pd
 from data.local_data_load import load_suspend_d_df
 from projects._03_factor_selection.config_manager.base_config import experiments_yaml_path, config_yaml_path
 from projects._03_factor_selection.config_manager.function_load.debug_temp_fast_config import IS_DEBUG_TEMP
-from projects._03_factor_selection.config_manager.function_load.load_config_file import _load_local_config_functional, _load_file
+from projects._03_factor_selection.config_manager.function_load.load_config_file import _load_file
 from projects._03_factor_selection.config_manager.factor_info_config import FACTOR_FILL_CONFIG_FOR_STRATEGY, \
     FILL_STRATEGY_FFILL_UNLIMITED, \
     FILL_STRATEGY_CONDITIONAL_ZERO, FILL_STRATEGY_FFILL_LIMIT_5, FILL_STRATEGY_NONE, FILL_STRATEGY_FFILL_LIMIT_65
@@ -112,6 +112,8 @@ class DataManager:
     4. 数据对齐和预处理
     """
 
+    RESIDENT_RAW_FIELDS = ('close_hfq', 'circ_mv', 'turnover_rate', 'list_date')
+
     def __init__(self, config_path: str=config_yaml_path, experiments_config_path: str=experiments_yaml_path, need_data_deal: bool = True):
         """
         初始化数据管理器
@@ -121,7 +123,7 @@ class DataManager:
         """
         self.st_matrix = None  # 注意 后续用此字段，需要注意前视偏差
         self._tradeable_matrix_by_suspend_resume = None
-        self.config = _load_local_config_functional(config_path)
+        self.config = _load_file(config_path)
         self.experiments_config = _load_file(experiments_config_path)
         self.backtest_start_date = self.config['backtest']['start_date']
         self.backtest_end_date = self.config['backtest']['end_date']
@@ -130,8 +132,15 @@ class DataManager:
         self.buffer_start_date = (pd.to_datetime(self.backtest_start_date) -
                                   pd.DateOffset(days=max_lookback_window)).strftime('%Y%m%d')
         if need_data_deal:
-            self.data_loader = DataLoader(data_path=LOCAL_PARQUET_DATA_DIR)
+            configured_data_root = Path(self.config['data_root']).resolve()
+            if configured_data_root != LOCAL_PARQUET_DATA_DIR.resolve():
+                raise ValueError(
+                    "data_root 与当前仍由专项加载器使用的数据目录不一致: "
+                    f"configured={configured_data_root}, expected={LOCAL_PARQUET_DATA_DIR.resolve()}"
+                )
+            self.data_loader = DataLoader(data_path=configured_data_root)
             self.raw_dfs = {}
+            self.temporary_raw_dfs = {}
             self.stock_pools_dict = None
             self.trading_dates = self.data_loader.get_trading_dates(self.backtest_start_date, self.backtest_end_date)
             # 用于计算ttm年度shift252 ，，预热数据
@@ -149,11 +158,8 @@ class DataManager:
             处理后的数据字典
         """
 
-        # 确定所有需要的字段（一次性确定）
-        all_required_fields = self._get_required_fields()
-
-        # === 一次性加载所有raw数据(互相对齐) ===
-        self.raw_dfs = self.data_loader.get_raw_dfs_by_require_fields(fields=all_required_fields,
+        self.clear_temporary_raw_fields()
+        self.raw_dfs = self.data_loader.get_raw_dfs_by_require_fields(fields=list(self.RESIDENT_RAW_FIELDS),
                                                                       buffer_start_date=self.buffer_start_date,
                                                                       end_date=self.backtest_end_date)
         # 加载辅助数据，
@@ -169,6 +175,47 @@ class DataManager:
             return None
         self._build_stock_pools_from_loaded_data(self.backtest_start_date, self.backtest_end_date)
         # 强行检查一下数据！完整率！ 不应该在这里检查！，太晚了， 已经被stock_pool_df 动了手脚了（低市值的会被置为nan，
+
+    def can_load_raw_field(self, field_name: str) -> bool:
+        """判断字段是否已就绪或有明确的本地数据源。"""
+        if not isinstance(field_name, str) or not field_name:
+            raise TypeError(f"field_name 必须是非空字符串，实际为 {field_name!r}")
+        return (
+            field_name in self.raw_dfs or
+            field_name in self.temporary_raw_dfs or
+            field_name in self.data_loader.field_map
+        )
+
+    def get_raw_field(self, field_name: str) -> pd.DataFrame:
+        """按当前研究窗口临时加载原始字段，并对齐到常驻价格网格。"""
+        if not self.can_load_raw_field(field_name):
+            raise ValueError(f"无法加载原始字段: field={field_name}, 原因=未找到数据源")
+        if field_name in self.temporary_raw_dfs:
+            return self.temporary_raw_dfs[field_name]
+
+        loaded = self.data_loader.get_raw_dfs_by_require_fields(
+            fields=[field_name],
+            buffer_start_date=self.buffer_start_date,
+            end_date=self.backtest_end_date,
+        )
+        if set(loaded) != {field_name}:
+            raise RuntimeError(
+                f"原始字段加载结果违反契约: field={field_name}, loaded={sorted(loaded)}"
+            )
+        check_field_level_completeness(loaded)
+        base_df = self.raw_dfs.get('close_hfq')
+        if base_df is None:
+            raise RuntimeError("临时原始字段对齐失败: 常驻字段 close_hfq 未加载")
+        aligned_df = loaded[field_name].reindex(index=base_df.index, columns=base_df.columns)
+        self.temporary_raw_dfs[field_name] = aligned_df
+        return aligned_df
+
+    def clear_temporary_raw_fields(self) -> None:
+        """释放当前因子临时读取的原始宽表。"""
+        cleared_count = len(self.temporary_raw_dfs)
+        self.temporary_raw_dfs.clear()
+        if cleared_count:
+            logger.info(f"临时原始字段已清理，释放了 {cleared_count} 个宽表")
 
     # ok
     def _build_stock_pools_from_loaded_data(self, start_date: str, end_date: str) -> pd.DataFrame:
@@ -207,43 +254,6 @@ class DataManager:
     # institutional_profile   = stock_pool_profiles['institutional_profile']#为“基本面派”和“趋势派”因子，提供一个高市值、高流动性的环境
     # microstructure_profile = stock_pool_profiles['microstructure_profile']#用于 微观（量价/情绪）因子
     # product_universe =self.product_universe (microstructure_profile,trading_dates)
-
-    def _get_required_fields(self) -> List[str]:
-        """获取所有需要的字段"""
-        required_fields = set()
-
-        # 基础字段 #核心要求 ，这是最基础的！ 千万不能错！ 只能是日频率更新的数据 ，(因为：   tushare 根据报告起始日给的数据！！ 我们需要根据ann_date来才对！
-        required_fields.update([
-            # 'pb',  # 为了计算价值类因子  前视数据  tushare 根据报告起始日给的数据！！ 我们需要根据ann_date来才对！
-            'amount',
-            'turnover_rate',  # 为了过滤 很差劲的股票  ，  、'total_mv'还可 用于计算中性化
-            # 'industry',  # 用于计算中性化
-            'circ_mv',  # 流通市值 用于WOS，加权最小二方跟  ，回归法会用到
-            'total_mv',
-            'list_date',  # 上市日期,
-            'delist_date',  # 退市日期,用于构建标准动态股票池
-            'close_raw',  # 为了计算出adj_factor
-            'vol_raw',
-            'close_hfq', 'open_hfq', 'high_hfq', 'low_hfq',
-            # 'pe_ttm', 'ps_ttm',  # 前视数据  tushare 根据报告起始日给的数据！！ 我们需要根据ann_date来才对！
-        ])
-        # 鉴于 get_raw_dfs_by_require_fields 针对没有trade_date列的parquet，对整个parquet的字段，是进行无脑 广播的。 需要注意：报告期(每个季度最后一天的日期）也就是end_date 现金流量表举例来说，就只有end_Date字段，不适合广播！
-        # 解决办法：
-        # 我决定 这不需要了，自行在factor_calculator里面 自定义_calcu—函数 更清晰！
-        # 最新解决办法 加一个cal_require_base_fields_from_daily标识就可以了
-        experiments_factor_names = self.get_experiments_factor_names()
-        factors = self.get_base_require_factors(experiments_factor_names)
-        required_fields.update(factors)
-
-        # 中性化需要的字段
-        neutralization = self.config['preprocessing']['neutralization']
-        if neutralization['enable']:
-            if 'industry' in neutralization['factors']:
-                print()
-                # required_fields.add('industry')# 方案已经调整为临时加载 申万一级二级行业，
-            if 'market_cap' in neutralization['factors']:
-                required_fields.add('circ_mv')
-        return list(required_fields)
 
     def _check_data_quality(self):
         """检查数据质量"""

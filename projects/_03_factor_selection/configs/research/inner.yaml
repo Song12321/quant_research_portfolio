@@ -1,0 +1,53 @@
+stage: inner
+experiment_name: single_factor_inner
+output_root: 'D:\lqs\codeAbout\py\Quantitative\import_file\quant_research_portfolio\workspace\factor_research'
+data_root: 'D:\lqs\quantity\parquet_data'
+factor_definition_file: '../factors/factors.yaml'
+direction_output_file: '../factors/inner_resolved_directions.yaml'
+
+experiments:
+  - factor_name: 'three_low_one_high'
+    stock_pool_name: 'ZZ800'
+
+backtest:
+  start_date: '2024-01-01'
+  end_date: '2025-07-10'
+  max_lookback_window: 450
+
+stock_pool_profiles:
+  ZZ800:
+    index_filter:
+      enable: true
+      index_code: '000906'
+    filters:
+      remove_st: true
+      remove_new_stocks: true
+      adapt_tradeable_matrix_by_suspend_resume: true
+      min_liquidity_percentile: 0.10
+      min_market_cap_percentile: 0.05
+
+preprocessing:
+  winsorization:
+    method: 'mad'
+    mad_threshold: 3.0
+    quantile_range: [0.01, 0.99]
+    by_industry:
+      primary_level: 'l2_code'
+      fallback_level: 'l1_code'
+      min_samples: 10
+  standardization:
+    method: 'zscore'
+    by_industry:
+      primary_level: 'l2_code'
+      fallback_level: 'l1_code'
+      min_samples: 5
+  neutralization:
+    enable: true
+    factors: ['market_cap', 'industry']
+    by_industry:
+      industry_level: 'l1_code'
+
+evaluation:
+  quantiles: 5
+  forward_periods: [5, 10, 20]
+  returns_calculator: ['o2o']

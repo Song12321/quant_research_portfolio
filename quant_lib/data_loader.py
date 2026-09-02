@@ -17,7 +17,6 @@ from odbc import noError
 
 from quant_lib import setup_logger
 from quant_lib.config.constant_config import LOCAL_PARQUET_DATA_DIR
-from quant_lib.config.logger_config import log_warning
 
 # 获取模块级别的logger
 logger = setup_logger(__name__)
@@ -51,6 +50,7 @@ class DataLoader:
             os.makedirs(self.data_path, exist_ok=True)
             logger.info(f"数据路径不存在,现已创建数据路径: {self.data_path}")
 
+        self.available_columns_by_file = defaultdict(set)
         self.field_map = self._build_field_map_to_file_name()
         logger.info(f"字段->所在文件Name--映射构建完毕，共发现 {len(self.field_map)} 个字段")
         # 在初始化时就加载交易日历，因为它是后续操作的基础(此处还没区分是否open，是全部
@@ -115,6 +115,7 @@ class DataLoader:
                 else:
                     # 单文件
                     logical_name = file_path.stem + '.parquet'
+                self.available_columns_by_file[logical_name].update(columns)
 
                 # 构建字段映射
                 for col in columns:
@@ -172,7 +173,10 @@ class DataLoader:
         file_to_fields = defaultdict(list)
         base_fields = ['ts_code', 'trade_date']
 
-        for field in list(set(fields + base_fields)):
+        if not fields:
+            raise ValueError("加载原始数据时 fields 不得为空")
+
+        for field in sorted(set(fields)):
             logical_name = self.field_map.get(field)
             if logical_name is None:
                 raise ValueError(f"未找到字段 {field} 的数据源")
@@ -187,18 +191,27 @@ class DataLoader:
                 file_path = self.data_path / logical_name
 
                 # 检查文件中实际存在的字段
-                columns_to_need_load =  self.fix_names_for_origin(columns_to_need_load,logical_name)
-                available_columns = pd.read_parquet(file_path).columns
-                columns_can_read = list(set(columns_to_need_load + base_fields) & set(available_columns))
-
-                if not columns_can_read:
-                    log_warning(f"文件 {logical_name} 中没有找到任何需要的字段")
-                    continue
+                columns_to_need_load = self.fix_names_for_origin(columns_to_need_load, logical_name)
+                available_columns = self.available_columns_by_file.get(logical_name)
+                if not available_columns:
+                    raise ValueError(f"数据源元数据缺失: logical_name={logical_name}")
+                missing_columns = sorted(set(columns_to_need_load) - available_columns)
+                if missing_columns:
+                    raise ValueError(
+                        f"数据源缺少必需字段: logical_name={logical_name}, "
+                        f"missing={missing_columns}, available={sorted(available_columns)}"
+                    )
+                if 'ts_code' not in available_columns:
+                    raise ValueError(f"数据源缺少面板主键: logical_name={logical_name}, field=ts_code")
+                columns_can_read = sorted(
+                    set(columns_to_need_load) |
+                    (set(base_fields) & available_columns)
+                )
 
                 # 加载数据
                 long_df = pd.read_parquet(
                     file_path,
-                    columns=list(set(columns_can_read))
+                    columns=columns_can_read
                 )
 
                 # 时间筛选

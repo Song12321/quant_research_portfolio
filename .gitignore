@@ -48,5 +48,8 @@ log/
 *.json
 *.csv
 
+# 因子研究配置属于代码的一部分，需要纳入版本控制
+!projects/_03_factor_selection/configs/**/*.yaml
+
 # 本地凭据
 quant_lib/tushare/tushare_token_manager/token.txt

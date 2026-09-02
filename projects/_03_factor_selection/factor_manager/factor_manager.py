@@ -161,7 +161,8 @@ class FactorManager:
                  data_manager: DataManager = None,
                  results_dir: str = Path(__file__).parent.parent / "workspace/factor_results",
                  registry_path: str = "factor_registry.json",
-                 config: Dict[str, Any] = None):
+                 config: Dict[str, Any] = None,
+                 apply_configured_direction: bool = True):
 
         """
         初始化因子管理器
@@ -175,6 +176,9 @@ class FactorManager:
         self.factors_cache: Dict[str, pd.DataFrame] = {}  # 添加其他测试结果
         self.calculator = FactorCalculator(self)
         self.data_manager = data_manager
+        if not isinstance(apply_configured_direction, bool):
+            raise TypeError("apply_configured_direction 必须是 bool")
+        self.apply_configured_direction = apply_configured_direction
         self.config = config or {}  # 保存配置，用于智能时间对齐
         self.results_dir = Path(results_dir)
         self.results_dir.mkdir(parents=True, exist_ok=True)
@@ -195,6 +199,7 @@ class FactorManager:
         """
         cache_size = len(self.factors_cache)
         self.factors_cache.clear()
+        self.data_manager.clear_temporary_raw_fields()
         logger.info(f"因子缓存已清理，释放了 {cache_size} 个缓存项")
 
     def get_cache_info(self) -> Dict[str, Any]:
@@ -215,17 +220,11 @@ class FactorManager:
         #    直接将 factor_request 透传下去
         raw_factor_df = self.get_raw_factor(factor_request)
 
-        # 2. 应用方向性调整
-        #    我们需要从请求中解析出因子的基础名字
-        factor_name_str = factor_request[0] if isinstance(factor_request, tuple) else factor_request
-        direction = FACTOR_DIRECTIONS.get(factor_name_str, 1)
-
-        if direction == -1:
-            final_factor_df = raw_factor_df * -1
-        else:
-            final_factor_df = raw_factor_df
-
-        return final_factor_df.copy()
+        if not self.apply_configured_direction:
+            return raw_factor_df.copy()
+        factor_name = factor_request[0] if isinstance(factor_request, tuple) else factor_request
+        direction = FACTOR_DIRECTIONS.get(factor_name, 1)
+        return (raw_factor_df * direction).copy()
 
     # 最原始的因子获取，未经过任何处理，目前被使用于 因子计算
     def get_raw_factor(self, factor_request: Union[str, tuple]) -> pd.DataFrame:
@@ -267,10 +266,10 @@ class FactorManager:
             method_to_call = getattr(self.calculator, calculation_method_name)
             # 【关键】将解析出的参数传递给计算函数
             raw_factor_df = method_to_call(**params)
-        elif factor_name in self.data_manager.raw_dfs and not params:
+        elif not params and self.data_manager.can_load_raw_field(factor_name):
             log_warning(
                 f"{factor_name}高度重视---这是宽表 index为全交易日，所以：停牌期的行全是nan，请思考这突如其来的nan对下面公式计算是否有影响，有影响是否ffill解决 ")
-            raw_factor_df = self.data_manager.raw_dfs[factor_name]
+            raw_factor_df = self.data_manager.get_raw_field(factor_name)
         else:
             raise ValueError(f"获取因子失败：{factor_request}")
 
