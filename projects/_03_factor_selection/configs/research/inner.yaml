@@ -14,13 +14,12 @@ experiments:
   - factor_name: 'three_low_one_high_improve'
   - factor_name: 'three_low_one_high'
 
-backtest:
+research_window:
   start_date: '2024-01-01'
   end_date: '2025-07-10'
   max_lookback_window: 450
 
-不应该命名为backtest!
-  max_lookback_window: 450 这个最好是没个因子单独自己配置！，但是股票池好像也需要配置这个！
+# max_lookback_window 最好由各因子单独配置，但股票池似乎也需要此配置。
 
 stock_pool_profiles:
   ZZ800:

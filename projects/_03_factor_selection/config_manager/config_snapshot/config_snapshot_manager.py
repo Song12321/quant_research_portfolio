@@ -70,7 +70,7 @@ class ConfigSnapshotManager:
             'preprocessing',
             'evaluation', 
             'stock_pool_profiles',
-            'backtest',
+            'research_window',
             'factor_selection',
             'factor_combination',
             'other_backtest',
@@ -194,8 +194,8 @@ class ConfigSnapshotManager:
             return False
     def get_snapshot_config_content_details(self, snapshot_id: str):
         config_content = self.get_snapshot(snapshot_id).config_content
-        s = config_content['backtest']['start_date']
-        e = config_content['backtest']['end_date']
+        s = config_content['research_window']['start_date']
+        e = config_content['research_window']['end_date']
         pool_index =list(config_content['stock_pool_profiles'].values())[0]['index_filter']['index_code']
         return pool_index,s,e ,config_content['evaluation']
 

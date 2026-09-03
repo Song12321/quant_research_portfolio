@@ -125,11 +125,11 @@ class DataManager:
         self._tradeable_matrix_by_suspend_resume = None
         self.config = _load_file(config_path)
         self.experiments_config = _load_file(experiments_config_path)
-        self.backtest_start_date = self.config['backtest']['start_date']
-        self.backtest_end_date = self.config['backtest']['end_date']
+        self.research_start_date = self.config['research_window']['start_date']
+        self.research_end_date = self.config['research_window']['end_date']
         # 计算真正需要开始加载数据的日期
-        max_lookback_window = self.config['backtest']['max_lookback_window']
-        self.buffer_start_date = (pd.to_datetime(self.backtest_start_date) -
+        max_lookback_window = self.config['research_window']['max_lookback_window']
+        self.buffer_start_date = (pd.to_datetime(self.research_start_date) -
                                   pd.DateOffset(days=max_lookback_window)).strftime('%Y%m%d')
         if need_data_deal:
             configured_data_root = Path(self.config['data_root']).resolve()
@@ -142,10 +142,10 @@ class DataManager:
             self.raw_dfs = {}
             self.temporary_raw_dfs = {}
             self.stock_pools_dict = None
-            self.trading_dates = self.data_loader.get_trading_dates(self.backtest_start_date, self.backtest_end_date)
+            self.trading_dates = self.data_loader.get_trading_dates(self.research_start_date, self.research_end_date)
             # 用于计算ttm年度shift252 ，，预热数据
             self._prebuffer_trading_dates = self.data_loader.get_trading_dates(self.buffer_start_date,
-                                                                               self.backtest_end_date)
+                                                                               self.research_end_date)
             self._existence_matrix = None
             self.pit_map = None
 
@@ -161,7 +161,7 @@ class DataManager:
         self.clear_temporary_raw_fields()
         self.raw_dfs = self.data_loader.get_raw_dfs_by_require_fields(fields=list(self.RESIDENT_RAW_FIELDS),
                                                                       buffer_start_date=self.buffer_start_date,
-                                                                      end_date=self.backtest_end_date)
+                                                                      end_date=self.research_end_date)
         # 加载辅助数据，
         self.pit_map = PointInTimeIndustryMap()  # 它能自动加载数据
 
@@ -173,7 +173,7 @@ class DataManager:
         if (IS_DEBUG_TEMP):
             log_warning("debug 用于快速测试数据！ 不加载繁琐的股票池")
             return None
-        self._build_stock_pools_from_loaded_data(self.backtest_start_date, self.backtest_end_date)
+        self._build_stock_pools_from_loaded_data(self.research_start_date, self.research_end_date)
         # 强行检查一下数据！完整率！ 不应该在这里检查！，太晚了， 已经被stock_pool_df 动了手脚了（低市值的会被置为nan，
 
     def can_load_raw_field(self, field_name: str) -> bool:
@@ -196,7 +196,7 @@ class DataManager:
         loaded = self.data_loader.get_raw_dfs_by_require_fields(
             fields=[field_name],
             buffer_start_date=self.buffer_start_date,
-            end_date=self.backtest_end_date,
+            end_date=self.research_end_date,
         )
         if set(loaded) != {field_name}:
             raise RuntimeError(
@@ -343,8 +343,8 @@ class DataManager:
             return self._tradeable_matrix_by_suspend_resume
         # 数据准备 获取所有股票和交易日期
         ts_codes = list(set(self.get_stock_codes()))
-        trading_dates = self.data_loader.get_trading_dates(start_date=self.backtest_start_date,
-                                                           end_date=self.backtest_end_date)
+        trading_dates = self.data_loader.get_trading_dates(start_date=self.research_start_date,
+                                                           end_date=self.research_end_date)
 
         logger.info("【专业版】正在重建每日‘可交易’状态矩阵...")
         suspend_df = load_suspend_d_df()  # 直接传入完整的停复牌数据
@@ -414,8 +414,8 @@ class DataManager:
         logger.info("正在根据名称变更历史，重建每日‘已知风险’状态st矩阵...")
         # 数据准备 获取所有股票和交易日期
         ts_codes = list(set(self.get_stock_codes()))
-        trading_dates = self.data_loader.get_trading_dates(start_date=self.backtest_start_date,
-                                                           end_date=self.backtest_end_date)
+        trading_dates = self.data_loader.get_trading_dates(start_date=self.research_start_date,
+                                                           end_date=self.research_end_date)
         namechange_df = self.get_namechange_data()
 
         # --- 1. 准备工作 ---
@@ -1096,7 +1096,7 @@ def create_data_manager(config_path: str) -> DataManager:
 #     # )
 #     #
 #     # calculate_rolling_beta(
-#     #     dataManager_temp.config_manager['backtest']['start_date'],
-#     #     dataManager_temp.config_manager['backtest']['end_date'],
+#     #     dataManager_temp.config_manager['research_window']['start_date'],
+#     #     dataManager_temp.config_manager['research_window']['end_date'],
 #     #     dataManager_temp.get_pool_of_factor_name_of_stock_codes('beta')
 #     # )

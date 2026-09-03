@@ -35,8 +35,8 @@ class StockPoolProfile:
 
 
 @dataclass
-class BacktestConfig:
-    """回测时间配置"""
+class ResearchWindowConfig:
+    """研究样本窗口配置"""
     start_date: str
     end_date: str
     def to_dict(self): return asdict(self)
@@ -46,13 +46,13 @@ class BacktestConfig:
 @dataclass
 class FullQuantConfig:
     """最终生成的完整配置对象"""
-    backtest: BacktestConfig
+    research_window: ResearchWindowConfig
     stock_pool_profiles: Dict[str, StockPoolProfile]
 
     # 提供一个方法，方便地将自身转换为字典，以便系统其他部分使用
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "backtest": self.backtest.to_dict(),
+            "research_window": self.research_window.to_dict(),
             "stock_pool_profiles": {
                 name: profile.to_dict() for name, profile in self.stock_pool_profiles.items()
             }
@@ -145,11 +145,11 @@ def generate_dynamic_config(
         pool_profiles
 ) -> Dict[str, Any]:
     """
-    【最终版】动态生成量化回测配置字典。
+    动态生成量化研究配置字典。
 
     Args:
-        start_date (str): 回测开始日期, 'YYYY-MM-DD'
-        end_date (str): 回测结束日期, 'YYYY-MM-DD'
+        start_date (str): 研究样本开始日期, 'YYYY-MM-DD'
+        end_date (str): 研究样本结束日期, 'YYYY-MM-DD'
         target_factors (List[str]): 要测试的因子名称列表, e.g., ['market_cap_log', 'beta']
         pool_custom_name (str): 生成的配置中，这个股票池的名字
 
@@ -162,8 +162,8 @@ def generate_dynamic_config(
 
     # 1. 检查预设是否存在
 
-    # 2. 构建回测时间配置
-    backtest_conf = BacktestConfig(start_date=start_date, end_date=end_date)
+    # 2. 构建研究样本窗口配置
+    research_window_conf = ResearchWindowConfig(start_date=start_date, end_date=end_date)
 
 
     # 4. 构建股票池配置 (使用深拷贝以防修改原始模板)
@@ -171,7 +171,7 @@ def generate_dynamic_config(
 
     # 5. 组装成最终的完整配置对象
     full_config = FullQuantConfig(
-        backtest=backtest_conf,
+        research_window=research_window_conf,
         stock_pool_profiles=pool_profiles
     )
 

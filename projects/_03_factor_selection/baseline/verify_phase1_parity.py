@@ -58,8 +58,8 @@ def verify_legacy_artifacts() -> None:
 
 def effective_config(temp_dir: Path) -> Path:
     config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
-    config["backtest"]["start_date"] = START_DATE
-    config["backtest"]["end_date"] = END_DATE
+    config["research_window"]["start_date"] = START_DATE
+    config["research_window"]["end_date"] = END_DATE
     path = temp_dir / "config.yaml"
     path.write_text(
         yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding="utf-8"

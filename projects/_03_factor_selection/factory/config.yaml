@@ -6,8 +6,8 @@ target_factors_for_evaluation:
   fields:
 
 
-# 回测时间范围
-backtest:
+# 研究样本窗口
+research_window:
   start_date: '2019-03-28'
   end_date: '2025-07-10'
   #计算预热期 ---

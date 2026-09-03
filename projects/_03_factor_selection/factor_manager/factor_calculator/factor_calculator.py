@@ -200,7 +200,7 @@ class FactorCalculator:
         loaded = data_manager.data_loader.get_raw_dfs_by_require_fields(
             fields=["dv_ttm"],
             buffer_start_date=data_manager.buffer_start_date,
-            end_date=data_manager.backtest_end_date,
+            end_date=data_manager.research_end_date,
         )
         return loaded["dv_ttm"]
 
@@ -645,7 +645,7 @@ class FactorCalculator:
         market_returns = self._calculate_market_pct_chg(index_code=benchmark_index)
 
         # --- 2. 准备 ---
-        config = self.factor_manager.data_manager.config['backtest']
+        config = self.factor_manager.data_manager.config['research_window']
         start_date, end_date = config['start_date'], config['end_date']
 
         buffer_days = int(window * 1.7) + 5

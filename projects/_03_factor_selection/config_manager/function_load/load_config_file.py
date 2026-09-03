@@ -146,9 +146,9 @@ ALL_FFF_most_basic_mode = {
     'desc': 'ALL_none_FFF_most_basic_profile（）无普适性过滤，，没有任何过滤'
 }
 
-def check_backtest_periods(start_date, end_date):
+def check_research_window(start_date, end_date):
     if pd.to_datetime(end_date) - pd.to_datetime(start_date) < datetime.timedelta(days=110):
-        raise ValueError("回测时间太短")
+        raise ValueError("研究样本窗口过短")
 
 ################################################################################################################
 
@@ -235,8 +235,8 @@ def _load_local_config_functional(config_path: str=config_yaml_path) -> Dict[str
         start_date=start, end_date=end,
         pool_profiles=trans_pram['pools']  # 直接取用 dict
     )
-    config['backtest']['start_date'] = start
-    config['backtest']['end_date'] = end
+    config['research_window']['start_date'] = start
+    config['research_window']['end_date'] = end
 
     config['stock_pool_profiles'] = dynamic_config['stock_pool_profiles']
 

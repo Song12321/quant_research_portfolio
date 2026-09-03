@@ -911,8 +911,8 @@ class FactorManager:
     #     # 2. 只调用一次 calculate_rolling_beta，计算所有股票的Beta
     #     logger.info(f"开始为总计 {len(master_stock_list)} 只股票计算统一的Beta...")
     #     return calculate_rolling_beta(
-    #         self.data_manager.config_manager['backtest']['start_date'],
-    #         self.data_manager.config_manager['backtest']['end_date'],
+    #         self.data_manager.config_manager['research_window']['start_date'],
+    #         self.data_manager.config_manager['research_window']['end_date'],
     #         master_stock_list
     #     )
     # 鉴于部分因子，必须传递参数！ 这里强加判断！ ，没有传递参数，我们尽可能补充上

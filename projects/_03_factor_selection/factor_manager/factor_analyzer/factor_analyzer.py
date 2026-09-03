@@ -259,8 +259,8 @@ class FactorAnalyzer:
         return (
             factor_data,
             is_composite,
-            data_manager.config["backtest"]["start_date"],
-            data_manager.config["backtest"]["end_date"],
+            data_manager.config["research_window"]["start_date"],
+            data_manager.config["research_window"]["end_date"],
             data_manager.get_stock_pool_index_code_by_name(stock_pool_name),
             {name: calculators[name] for name in configured_calculators},
         )
