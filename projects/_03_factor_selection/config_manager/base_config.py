@@ -1,8 +1,6 @@
 # 常用指数代码配置
 from pathlib import Path
 
-from jupyterlab.pytest_plugin import workspaces_dir
-
 INDEX_CODES = {
     "HS300": "000300",     # 沪深300
     "ZZ500": "000905",     # 中证500

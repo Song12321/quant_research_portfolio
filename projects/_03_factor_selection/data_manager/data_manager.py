@@ -21,6 +21,10 @@ from projects._03_factor_selection.config_manager.function_load.load_config_file
 from projects._03_factor_selection.config_manager.factor_info_config import FACTOR_FILL_CONFIG_FOR_STRATEGY, \
     FILL_STRATEGY_FFILL_UNLIMITED, \
     FILL_STRATEGY_CONDITIONAL_ZERO, FILL_STRATEGY_FFILL_LIMIT_5, FILL_STRATEGY_NONE, FILL_STRATEGY_FFILL_LIMIT_65
+from projects._03_factor_selection.data_manager.suspend_state import (
+    _aggregate_suspend_events_to_eod_states,
+    _build_suspend_eod_matrix,
+)
 from projects._03_factor_selection.utils.IndustryMap import PointInTimeIndustryMap
 from quant_lib.data_loader import DataLoader
 from projects._03_factor_selection.utils.component_loader import IndexComponentLoader
@@ -379,69 +383,24 @@ class DataManager:
             self,
     ) -> pd.DataFrame:
         """
-         根据完整的停复牌历史，构建每日“可交易”状态矩阵。
+        根据完整停复牌历史，构建每日收盘后的可交易状态矩阵。
 
+        该矩阵随后 shift(1)，仅用于 T-1 日终状态对 T 日开盘决策的约束。
         """
         if self._tradeable_matrix_by_suspend_resume is not None:
             logger.info(
                 "self._tradeable_matrix_by_suspend_resume 之前以及被初始化，无需再次加载（这是全量数据，一次加载即可")
             return self._tradeable_matrix_by_suspend_resume
-        # 数据准备 获取所有股票和交易日期
+
         ts_codes = list(set(self.get_stock_codes()))
         trading_dates = self.data_loader.get_trading_dates(start_date=self.research_start_date,
                                                            end_date=self.research_end_date)
 
-        logger.info("【专业版】正在重建每日‘可交易’状态矩阵...")
-        suspend_df = load_suspend_d_df()  # 直接传入完整的停复牌数据
+        logger.info("正在重建每日收盘后的可交易状态矩阵...")
+        daily_states = _aggregate_suspend_events_to_eod_states(load_suspend_d_df())
+        tradeable_matrix = _build_suspend_eod_matrix(daily_states, trading_dates, ts_codes)
 
-        # --- 1. 数据预处理 ---
-        # 确保suspend_df中的日期是datetime类型，并按股票和日期排序
-        suspend_df['trade_date'] = pd.to_datetime(suspend_df['trade_date'])
-        suspend_df = suspend_df.sort_values(by=['ts_code', 'trade_date'], inplace=False)
-
-        # 初始化一个空的DataFrame，准备逐列填充
-        tradeable_matrix = pd.DataFrame(index=trading_dates, columns=ts_codes, dtype=bool)
-
-        # --- 2. 逐一处理每只股票的状态序列 ---
-        for ts_code in ts_codes:
-            # a. 获取该股票的所有停复牌事件
-            stock_events = suspend_df[suspend_df['ts_code'] == ts_code]
-
-            # 创建一个用于状态传播的临时Series，初始值全为NaN
-            status_series = pd.Series(np.nan, index=trading_dates)
-
-            # b. 【核心】确定初始状态
-            # 查找在回测开始日期之前发生的最后一个事件
-            events_before_start = stock_events[stock_events['trade_date'] < trading_dates[0]]
-            if not events_before_start.empty:
-                # 如果存在，则最后一个事件的类型决定了初始状态
-                # 'R' (Resumed) -> True (可交易), 'S' (Suspended) -> False (不可交易)
-                initial_status = (events_before_start.iloc[-1]['suspend_type'] == 'R')
-            else:
-                # 如果之前没有任何停复牌事件，则默认为可交易
-                initial_status = True
-
-            # 在我们的状态序列的第一个位置，设置好初始状态
-            status_series.iloc[0] = initial_status
-
-            # c. 【核心】标记回测期内的状态变化“拐点”
-            events_in_period = stock_events[stock_events['trade_date'].isin(trading_dates)]
-            for _, event in events_in_period.iterrows():
-                event_date = event['trade_date']
-                is_tradeable = (event['suspend_type'] == 'R')
-                status_series[event_date] = is_tradeable
-
-            # d. 【核心】状态传播 (Forward Fill)
-            # ffill会用前一个有效值填充后面的NaN，完美模拟了状态的持续性
-            status_series = status_series.ffill(inplace=False)
-
-            # 将这只股票计算好的完整状态序列，填充到总矩阵中
-            tradeable_matrix[ts_code] = status_series
-
-        # e. 收尾工作：对于没有任何停复牌历史的股票，它们列可能依然是NaN，默认为可交易
-        tradeable_matrix = tradeable_matrix.fillna(True, inplace=False)
-
-        logger.info("每日‘可交易’状态矩阵重建完毕。")
+        logger.info("每日收盘后的可交易状态矩阵重建完毕。")
         self._tradeable_matrix_by_suspend_resume = tradeable_matrix.astype(bool)
         return self._tradeable_matrix_by_suspend_resume
 

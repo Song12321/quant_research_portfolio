@@ -137,7 +137,6 @@ preprocessing:
   winsorization:
     method: 'mad' # 'mad' or 'quantile'
     mad_threshold: 3.0
-    quantile_range: [ 0.01, 0.99 ]
     by_industry: # 如果这个key存在，则执行分行业去极值
       primary_level: 'l2_code' # 主要使用的行业级别
       fallback_level: 'l1_code' # 回溯时使用的行业级别

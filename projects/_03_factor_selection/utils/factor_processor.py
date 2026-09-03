@@ -23,7 +23,6 @@ import sys
 from pathlib import Path
 
 from projects._03_factor_selection.factor_manager.classifier.factor_classifier import FactorClassifier
-from projects._03_factor_selection.factor_manager.factor_manager import FactorManager
 from quant_lib.config.constant_config import permanent__day
 
 # 添加项目根目录到路径
@@ -60,6 +59,7 @@ class FactorProcessor:
         """
         self.config = config
         self.preprocessing_config = config.get('preprocessing', {})
+        self.winsorization_exclusions = []
 
     # ok
     def process_factor(self,
@@ -124,6 +124,7 @@ class FactorProcessor:
             logger.info("2. 跳过标准化处理...")
 
         # 统计处理结果
+        from projects._03_factor_selection.factor_manager.factor_manager import FactorManager
         FactorManager._validate_data_quality(processed_target_factor_df ,target_factor_name,'预处理完之后：')
 
         return processed_target_factor_df
@@ -207,6 +208,56 @@ class FactorProcessor:
 
         return result
 
+    def _record_winsorization_exclusions(self, date, stock_codes, reason: str) -> None:
+        # 被排除值在结果中保持 NaN；同时保留逐股票记录，避免数据被静默丢弃。
+        codes = sorted(str(code) for code in stock_codes)
+        if not codes:
+            return
+        date_text = pd.Timestamp(date).strftime('%Y-%m-%d')
+        self.winsorization_exclusions.extend(
+            {'date': date_text, 'ts_code': code, 'reason': reason} for code in codes
+        )
+        log_warning(f"去极值明确排除: date={date_text}, reason={reason}, ts_codes={codes}")
+
+    @staticmethod
+    def _validate_winsorization_config(config: dict) -> None:
+        # MAD 与分位数参数互斥，提前失败可防止配置存在但计算时被静默忽略。
+        if 'method' not in config:
+            raise ValueError("winsorization 配置缺少必填字段 method")
+        method = config['method']
+        if method == 'mad':
+            if 'mad_threshold' not in config:
+                raise ValueError("MAD 去极值配置缺少必填字段 mad_threshold")
+            if 'quantile_range' in config:
+                raise ValueError("method=mad 时不得配置 quantile_range；该字段不会参与 MAD 计算")
+            threshold = config['mad_threshold']
+            if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not np.isfinite(threshold) or threshold <= 0:
+                raise ValueError(f"mad_threshold 必须是有限正数，实际值: {threshold!r}")
+        elif method == 'quantile':
+            if 'mad_threshold' in config:
+                raise ValueError("method=quantile 时不得配置 mad_threshold")
+            quantile_range = config.get('quantile_range')
+            if not isinstance(quantile_range, (list, tuple)) or len(quantile_range) != 2:
+                raise ValueError(f"quantile_range 必须包含两个分位点，实际值: {quantile_range!r}")
+            lower_q, upper_q = quantile_range
+            if not (isinstance(lower_q, (int, float)) and isinstance(upper_q, (int, float)) and 0 <= lower_q < upper_q <= 1):
+                raise ValueError(f"quantile_range 必须满足 0 <= lower < upper <= 1，实际值: {quantile_range!r}")
+        else:
+            raise ValueError(f"不支持的 winsorization.method: {method!r}")
+
+        industry_config = config.get('by_industry')
+        if industry_config is None:
+            return
+        if method != 'mad':
+            raise ValueError("分行业去极值当前只支持 method=mad")
+        required = {'primary_level', 'fallback_level', 'min_samples'}
+        missing = sorted(required - industry_config.keys())
+        if missing:
+            raise ValueError(f"winsorization.by_industry 缺少必填字段: {missing}")
+        min_samples = industry_config['min_samples']
+        if isinstance(min_samples, bool) or not isinstance(min_samples, int) or min_samples < 1:
+            raise ValueError(f"winsorization.by_industry.min_samples 必须是正整数，实际值: {min_samples!r}")
+
     def _winsorize_quantile_series(self, series: pd.Series, quantile_range: list, min_samples: int = 10) -> pd.Series:
         """
         【辅助函数】对单个Series进行分位数去极值。
@@ -237,6 +288,28 @@ class FactorProcessor:
         result[mask] = series[mask].clip(lower_bound, upper_bound)
 
         return result
+
+    @staticmethod
+    def _build_industry_mad_stats(
+            data: pd.DataFrame,
+            primary_col: str,
+            fallback_col: str,
+    ) -> pd.DataFrame:
+        """计算 L2 与 L1 的中位数、有效样本数和 MAD。"""
+        def mad_func(series: pd.Series) -> float:
+            return (series - series.median()).abs().median()
+
+        # count 只统计当日因子有效且行业映射完整的股票，与实际参与计算的样本一致。
+        primary_stats = data.groupby(primary_col)['factor'].agg(['median', 'count', mad_func])
+        primary_stats = primary_stats.rename(columns={
+            'median': 'primary_median', 'count': 'primary_count', 'mad_func': 'primary_mad'
+        })
+        fallback_stats = data.groupby(fallback_col)['factor'].agg(['median', 'count', mad_func])
+        fallback_stats = fallback_stats.rename(columns={
+            'median': 'fallback_median', 'count': 'fallback_count', 'mad_func': 'fallback_mad'
+        })
+        data = data.merge(primary_stats, on=primary_col, how='left')
+        return data.merge(fallback_stats, on=fallback_col, how='left')
         # =========================================================================
         # 【核心修改】新的辅助函数，处理单个截面日的回溯逻辑
         # =========================================================================
@@ -245,68 +318,51 @@ class FactorProcessor:
             self,
             daily_factor_series: pd.Series,
             daily_industry_map: pd.DataFrame,
-            config: dict
+            winsorization_config: dict,
+            date: pd.Timestamp,
     ) -> pd.Series:
-        """
-        对单个截面日的因子数据执行“向上回溯”去极值。
-        这是之前我们独立设计的 winsorize_by_industry_fallback 函数的类方法版本。
-        """
-        primary_col = config['primary_level']  # e.g., 'l2_code'
-        fallback_col = config['fallback_level']  # e.g., 'l1_code'
-        min_samples = config['min_samples']
+        """对单个截面日执行 L2→L1 的 MAD 去极值。"""
+        industry_config = winsorization_config['by_industry']
+        primary_col = industry_config['primary_level']
+        fallback_col = industry_config['fallback_level']
+        min_samples = industry_config['min_samples']
+        threshold = winsorization_config['mad_threshold']
 
-        # 1. 数据整合
         df = daily_factor_series.to_frame(name='factor')
+        df.index.name = 'ts_code'
         merged_df = df.join(daily_industry_map, how='left')
-        #   merge 之前，先将索引ts_code重置为一列，以防在merge(merged_df.merge(primary_stats, on=primary_col, how='left'))中丢失
-        merged_df=merged_df.reset_index(inplace=False)
-
-        # 删除没有因子值或行业分类的数据
-        merged_df=merged_df.dropna(subset=['factor', primary_col, fallback_col], inplace=False)
+        # 不用其他日期或其他字段猜测行业；T-1 映射缺失的股票当日明确排除。
+        missing_industry = merged_df[[primary_col, fallback_col]].isna().any(axis=1)
+        self._record_winsorization_exclusions(
+            date, merged_df.index[missing_industry], 'missing_industry'
+        )
+        merged_df = merged_df.loc[~missing_industry].reset_index()
         if merged_df.empty:
             return pd.Series(index=daily_factor_series.index, dtype=float)
 
-        # 2. 计算各级别行业的统计数据
-        def mad_func(s: pd.Series) -> float:
-            return (s - s.median()).abs().median()
+        merged_df = self._build_industry_mad_stats(merged_df, primary_col, fallback_col)
 
-        primary_stats = merged_df.groupby(primary_col)['factor'].agg(['median', 'count', mad_func])
-        primary_stats=primary_stats.rename(columns={'median': 'primary_median', 'count': 'primary_count', 'mad_func': 'primary_mad'},
-                             inplace=False)
-
-        fallback_stats = merged_df.groupby(fallback_col)['factor'].agg(['median', mad_func])
-        fallback_stats=fallback_stats.rename(columns={'median': 'fallback_median', 'mad_func': 'fallback_mad'}, inplace=False)
-
-        # 3. 将统计数据映射回每只股票
-        merged_df = merged_df.merge(primary_stats, on=primary_col, how='left')
-        merged_df = merged_df.merge(fallback_stats, on=fallback_col, how='left')
-
-        # 4. 核心回溯逻辑 不满足必须样本数目，就用一级行业的mad
+        # L2 样本不足时统一改用所属 L1 的统计量，避免小截面的中位数和 MAD 不稳定。
         use_fallback = merged_df['primary_count'] < min_samples
-
         merged_df['final_median'] = np.where(use_fallback, merged_df['fallback_median'], merged_df['primary_median'])
         merged_df['final_mad'] = np.where(use_fallback, merged_df['fallback_mad'], merged_df['primary_mad'])
-
-        merged_df['final_mad'].replace(0, 1e-9, inplace=True)  # #秒啊，如果是0的话 下面upper lower是一个值！ 导致最后所因子都是一个值！大忌！
+        # L1 仍不足时已没有满足门槛的行业统计量，因此排除而不是继续用小样本计算。
+        merged_df['insufficient_l1'] = use_fallback & (merged_df['fallback_count'] < min_samples)
+        self._record_winsorization_exclusions(
+            date, merged_df.loc[merged_df['insufficient_l1'], 'ts_code'], 'insufficient_l1_samples'
+        )
         merged_df.set_index('ts_code', inplace=True)
 
-        # 5. 执行去极值
-        method = config.get('method', 'mad')
-        if method == 'mad':
-            threshold = config.get('mad_threshold', 3)
-            const = 1.4826
-            upper = merged_df['final_median'] + threshold * const * merged_df['final_mad']
-            lower = merged_df['final_median'] - threshold * const * merged_df['final_mad']
-        elif method == 'quantile':
-            # 分位数法也可以应用回溯逻辑，但较为罕见。这里我们以MAD为主，分位数保持组内处理。
-            # 如需分位数回溯，逻辑会更复杂，此处为简化。
-            return merged_df['factor']  # 暂不处理quantile的回溯
-        else:
-            return merged_df['factor']
-
-        winsorized_factor = merged_df['factor'].clip(lower=lower, upper=upper)
-
-        # 返回一个与输入Series对齐的Series
+        winsorized_factor = merged_df['factor'].copy()
+        winsorized_factor.loc[merged_df['insufficient_l1']] = np.nan
+        # MAD=0 时不存在可靠的离散尺度；保持该组原值，禁止用极小数伪造边界。
+        can_winsorize = (~merged_df['insufficient_l1']) & merged_df['final_mad'].notna() & merged_df['final_mad'].ne(0)
+        const = 1.4826
+        upper = merged_df['final_median'] + threshold * const * merged_df['final_mad']
+        lower = merged_df['final_median'] - threshold * const * merged_df['final_mad']
+        winsorized_factor.loc[can_winsorize] = merged_df.loc[can_winsorize, 'factor'].clip(
+            lower=lower.loc[can_winsorize], upper=upper.loc[can_winsorize]
+        )
         return winsorized_factor.reindex(daily_factor_series.index)
 
         # =========================================================================
@@ -326,20 +382,22 @@ class FactorProcessor:
             pd.DataFrame: 去极值后的因子数据。
         """
         winsorization_config = self.preprocessing_config.get('winsorization', {})
+        self.winsorization_exclusions = []
+        self._validate_winsorization_config(winsorization_config)
+        # method 和阈值位于 winsorization 外层，分行业函数必须接收完整配置才能真正生效。
+        method = winsorization_config['method']
         industry_config = winsorization_config.get('by_industry')
 
         # --- 路径一：全市场去极值 (逻辑基本不变) ---
         if pit_industry_map is None or industry_config is None:
             logger.info("  执行全市场去极值...")
-            method = winsorization_config.get('method', 'mad')
             if method == 'mad':
-                params = {'threshold': winsorization_config.get('mad_threshold', 5),
+                params = {'threshold': winsorization_config['mad_threshold'],
                           'min_samples': 1}  # 全市场不需min_samples
                 return factor_data.apply(self._winsorize_mad_series, axis=1, **params)
             elif method == 'quantile':
-                params = {'quantile_range': winsorization_config.get('quantile_range', [0.01, 0.99]), 'min_samples': 1}
+                params = {'quantile_range': winsorization_config['quantile_range'], 'min_samples': 1}
                 return factor_data.apply(self._winsorize_quantile_series, axis=1, **params)
-            return factor_data
 
         # --- 路径二：分行业去极值 (采用回溯逻辑) ---
         else:
@@ -364,6 +422,10 @@ class FactorProcessor:
                 prev_trading_date = trading_dates_series.shift(1).loc[date]
                 # 处理回测第一天的边界情况
                 if pd.isna(prev_trading_date):
+                    # 没有 T-1 行业映射时不能沿用未经行业处理的原值，首日统一排除。
+                    self._record_winsorization_exclusions(
+                        date, daily_factor_series.index, 'missing_previous_trading_day'
+                    )
                     processed_data[date] = pd.Series(
                         np.nan, index=daily_factor_series.index, dtype=float
                     )
@@ -379,7 +441,8 @@ class FactorProcessor:
                 processed_data[date] = self._winsorize_cross_section_fallback(
                     daily_factor_series=daily_factor_series,
                     daily_industry_map=daily_industry_map,
-                    config=industry_config
+                    winsorization_config=winsorization_config,
+                    date=date,
                 )
 
             # 将处理后的数据合并回DataFrame
@@ -782,8 +845,8 @@ class FactorProcessor:
                 prev_trading_date = trading_dates_series.shift(1).loc[date]
                 # 处理回测第一天的边界情况
                 if pd.isna(prev_trading_date):
-                    # log_warning(f"正常现象：日期 {date} 是回测首日，没有前一天的行业数据，跳过分行业处理。")
-                    processed_data[date] = daily_factor_series  # 当天不做处理或执行全市场处理
+                    # 与分行业去极值保持同一首日口径，不输出未经行业标准化的原值。
+                    processed_data[date] = pd.Series(index=daily_factor_series.index, dtype=float)
                     continue
 
                 # 使用 T-1 的日期查询行业地图

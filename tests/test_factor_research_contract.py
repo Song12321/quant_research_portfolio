@@ -294,6 +294,7 @@ def test_industry_mad_skips_the_first_date_without_a_prior_industry_map():
             "preprocessing": {
                 "winsorization": {
                     "method": "mad",
+                    "mad_threshold": 3.0,
                     "by_industry": {
                         "primary_level": "l2_code",
                         "fallback_level": "l1_code",

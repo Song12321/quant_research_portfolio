@@ -34,7 +34,6 @@ preprocessing: #思考以下配置 合理吗 ？问题2：是基于全市场？ 
   winsorization:
     method: 'mad'
     mad_threshold: 3.0
-    quantile_range: [0.01, 0.99]
     by_industry:
       primary_level: 'l2_code'
       fallback_level: 'l1_code'
