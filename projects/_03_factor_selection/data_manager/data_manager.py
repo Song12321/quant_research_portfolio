@@ -127,10 +127,7 @@ class DataManager:
         self.experiments_config = _load_file(experiments_config_path)
         self.research_start_date = self.config['research_window']['start_date']
         self.research_end_date = self.config['research_window']['end_date']
-        # 计算真正需要开始加载数据的日期
-        max_lookback_window = self.config['research_window']['max_lookback_window']
-        self.buffer_start_date = (pd.to_datetime(self.research_start_date) -
-                                  pd.DateOffset(days=max_lookback_window)).strftime('%Y%m%d')
+        self.buffer_start_date = None
         if need_data_deal:
             configured_data_root = Path(self.config['data_root']).resolve()
             if configured_data_root != LOCAL_PARQUET_DATA_DIR.resolve():
@@ -143,13 +140,61 @@ class DataManager:
             self.temporary_raw_dfs = {}
             self.stock_pools_dict = None
             self.trading_dates = self.data_loader.get_trading_dates(self.research_start_date, self.research_end_date)
-            # 用于计算ttm年度shift252 ，，预热数据
+            self.buffer_start_date = self._resolve_buffer_start_date()
             self._prebuffer_trading_dates = self.data_loader.get_trading_dates(self.buffer_start_date,
                                                                                self.research_end_date)
             self._existence_matrix = None
             self.pit_map = None
 
             self.component_loader = IndexComponentLoader()
+
+    def _resolve_buffer_start_date(self) -> str:
+        factor_days = [
+            self._get_factor_preheat_trading_days(name, set())
+            for name in self.get_experiments_factor_names()
+        ]
+        preheat_days = max(factor_days)
+        first_date = self.trading_dates[0]
+        trade_cal = self.data_loader.trade_cal
+        prior_dates = trade_cal.loc[
+            (trade_cal['is_open'] == 1) & (trade_cal['cal_date'] < first_date),
+            'cal_date',
+        ]
+        if len(prior_dates) < preheat_days:
+            raise ValueError(
+                f"交易日历不足以满足预热期: first_date={first_date.date()}, "
+                f"required_days={preheat_days}, available_days={len(prior_dates)}"
+            )
+        buffer_start = pd.Timestamp(prior_dates.iloc[-preheat_days])
+        logger.info(
+            f"预热期已解析: factor_days={max(factor_days)}, "
+            f"selected_days={preheat_days}, "
+            f"buffer_start={buffer_start.date()}"
+        )
+        return buffer_start.strftime('%Y%m%d')
+
+    def _get_factor_preheat_trading_days(self, factor_name: str, ancestors: set[str]) -> int:
+        if factor_name in ancestors:
+            raise ValueError(f"复合因子依赖存在循环: factor={factor_name}")
+        definitions = self.get_factor_definition(factor_name)
+        if len(definitions) != 1:
+            raise ValueError(f"因子预热期配置必须唯一: factor={factor_name}, count={len(definitions)}")
+        definition = definitions.iloc[0]
+        if definition['action'] == 'composite':
+            children = definition['cal_require_base_fields']
+            if not isinstance(children, list) or not children:
+                raise ValueError(f"复合因子缺少非空子因子列表: factor={factor_name}")
+            next_ancestors = ancestors | {factor_name}
+            return max(self._get_factor_preheat_trading_days(name, next_ancestors) for name in children)
+        if 'preheat_trading_days' not in definition.index:
+            raise ValueError(f"基础因子缺少 preheat_trading_days: factor={factor_name}")
+        preheat_days = definition['preheat_trading_days']
+        if isinstance(preheat_days, bool) or not isinstance(preheat_days, (int, np.integer)) or preheat_days <= 0:
+            raise ValueError(
+                f"基础因子 preheat_trading_days 必须为正整数: "
+                f"factor={factor_name}, actual={preheat_days!r}"
+            )
+        return int(preheat_days)
 
     def prepare_basic_data(self) -> Dict[str, pd.DataFrame]:
         """
