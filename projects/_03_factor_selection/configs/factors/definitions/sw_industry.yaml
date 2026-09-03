@@ -1,0 +1,7 @@
+# style_category: sw_industry
+factor_definition:
+- name: sw_l1_momentum_21d
+  style_category: sw_industry
+  description: ' 板块轮动效应。买入近期表现强势的行业中的股票。'
+  action: technical_calcu
+  time_alignment: shift

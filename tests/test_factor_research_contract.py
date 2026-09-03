@@ -6,6 +6,9 @@ import pandas as pd
 import pytest
 import yaml
 
+from projects._03_factor_selection.config_manager.factor_definition_loader import (
+    load_factor_definitions,
+)
 from projects._03_factor_selection.config_manager.inner_direction_store import (
     resolve_and_store_inner_direction,
 )
@@ -21,6 +24,16 @@ from projects._03_factor_selection.factor_manager.factor_manager import (
     FactorResultsManager,
 )
 from projects._03_factor_selection.utils.factor_processor import FactorProcessor
+
+
+FACTOR_DEFINITION_DIR = (
+    Path(__file__).parents[1]
+    / "projects"
+    / "_03_factor_selection"
+    / "configs"
+    / "factors"
+    / "definitions"
+)
 
 
 def build_results() -> dict:
@@ -235,8 +248,7 @@ def test_inner_direction_rejects_missing_or_invalid_non_overlapping_sample_count
 
 
 def test_only_composites_declare_component_fields():
-    config_path = Path(__file__).parents[1] / "projects" / "_03_factor_selection" / "configs" / "factors" / "factors.yaml"
-    definitions = yaml.safe_load(config_path.read_text(encoding="utf-8"))["factor_definition"]
+    definitions = load_factor_definitions(FACTOR_DEFINITION_DIR)
 
     for definition in definitions:
         assert "cal_require_base_fields_from_daily" not in definition
@@ -365,8 +377,7 @@ class _AlignmentDataManager:
     ["three_low_one_high_value", "three_low_one_high_improve"],
 )
 def test_three_low_one_high_daily_components_shift_before_o2o_label(factor_name):
-    config_path = Path(__file__).parents[1] / "projects" / "_03_factor_selection" / "configs" / "factors" / "factors.yaml"
-    definitions = yaml.safe_load(config_path.read_text(encoding="utf-8"))["factor_definition"]
+    definitions = load_factor_definitions(FACTOR_DEFINITION_DIR)
     raw_factor = pd.DataFrame(
         {"000001.SZ": [1.0, 2.0, 3.0]},
         index=pd.date_range("2024-01-02", periods=3),

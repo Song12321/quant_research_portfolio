@@ -1,0 +1,22 @@
+# style_category: size
+factor_definition:
+- name: total_mv
+  style_category: size
+  action: null
+  time_alignment: shift
+  description: 每日总市值。
+- name: circ_mv
+  style_category: size
+  action: null
+  time_alignment: shift
+  description: 每日流通市值，在A股比总市值更能反映真实交易规模。
+- name: log_circ_mv
+  style_category: size
+  description: 流通市值的对数。必须取对数以缓解数据右偏，是进行回归和中性化时最标准的规模因子。
+  action: technical_calcu
+  time_alignment: shift
+- name: log_total_mv
+  style_category: size
+  description: 总市值的对数。必须取对数以缓解数据右偏，是进行回归和中性化时最标准的规模因子。
+  action: technical_calcu
+  time_alignment: shift

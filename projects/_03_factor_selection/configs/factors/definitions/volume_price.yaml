@@ -1,0 +1,7 @@
+# style_category: volume_price
+factor_definition:
+- name: single_day_vpt
+  style_category: volume_price
+  description: ''
+  action: technical_calcu
+  time_alignment: shift

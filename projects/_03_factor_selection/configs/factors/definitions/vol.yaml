@@ -1,0 +1,7 @@
+# style_category: vol
+factor_definition:
+- name: vol_hfq
+  style_category: vol
+  action: null
+  time_alignment: shift
+  description: ''

@@ -4,7 +4,7 @@
 
 ## 配置
 
-- `configs/factors/factors.yaml`：因子定义。
+- `configs/factors/definitions/*.yaml`：按 `style_category` 拆分的因子定义；运行时按文件名顺序严格合并。
 - `configs/research/inner.yaml`：Inner 日期、唯一股票池、实验名单、预处理和评价周期。`stock_pool_name` 是顶层必填字段，`experiments` 每项只配置 `factor_name`。
 - `configs/factors/inner_resolved_directions.yaml`：Inner 完成后增量写入的方向配置。
 

@@ -1,0 +1,12 @@
+# style_category: sentiment
+factor_definition:
+- name: rsi
+  style_category: sentiment
+  description: 相对强弱指数(Relative Strength Index)。衡量股价在一段时间内的超买超卖状态，是经典的技术分析反转指标。
+  action: technical_calcu
+  time_alignment: shift
+- name: cci
+  style_category: sentiment
+  description: 顺势指标(Commodity Channel Index)。衡量股价是否偏离其均价的统计范围，常用于判断趋势的开启、持续或反转。
+  action: technical_calcu
+  time_alignment: shift

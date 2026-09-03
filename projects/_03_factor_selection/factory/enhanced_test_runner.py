@@ -8,6 +8,9 @@ from typing import Any, Dict, List
 
 import yaml
 
+from projects._03_factor_selection.config_manager.factor_definition_loader import (
+    load_factor_definitions,
+)
 from projects._03_factor_selection.config_manager.inner_direction_store import (
     resolve_and_store_inner_direction,
 )
@@ -105,18 +108,17 @@ class EnhancedTestRunner:
         self._require_non_empty_string(config, "stock_pool_name")
         self._require_non_empty_string(config, "experiment_name")
         self._require_non_empty_string(config, "output_root")
-        factor_path = self._resolve_config_path(config, "factor_definition_file")
+        output_root = self._resolve_config_path(config, "output_root")
+        factor_dir = self._resolve_config_path(config, "factor_definition_dir")
         self.direction_output_path = self._resolve_config_path(config, "direction_output_file")
-        factor_config = self._load_yaml_mapping(factor_path)
-        definitions = factor_config.get("factor_definition")
-        if not isinstance(definitions, list) or not definitions:
-            raise ValueError(f"因子配置缺少非空 factor_definition: path={factor_path}")
+        definitions = load_factor_definitions(factor_dir)
         definition_names = [row.get("name") for row in definitions if isinstance(row, dict)]
         missing = sorted(set(row["factor_name"] for row in experiments) - set(definition_names))
         if missing:
             raise ValueError(f"因子配置缺少 Inner 目标因子定义: factors={missing}")
         config["factor_definition"] = definitions
-        config["factor_definition_file"] = str(factor_path)
+        config["output_root"] = str(output_root)
+        config["factor_definition_dir"] = str(factor_dir)
         config["direction_output_file"] = str(self.direction_output_path)
         config["description"] = description
         self._validate_composite_dependencies(experiments, definitions)
@@ -273,13 +275,6 @@ class EnhancedTestRunner:
         return payload
 
 
-def run_test_by_config(
-    session_description: str = "Inner processed 因子研究",
-    research_config_path: str | Path = DEFAULT_INNER_CONFIG,
-) -> List[Dict]:
-    """正式 Inner 研究入口。"""
-    return EnhancedTestRunner(research_config_path).run(session_description)
-
-
 if __name__ == "__main__":
-    run_test_by_config()
+    """正式 Inner 研究入口。"""
+    EnhancedTestRunner(DEFAULT_INNER_CONFIG).run('Inner processed 因子研究')

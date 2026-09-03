@@ -1,0 +1,7 @@
+# style_category: event
+factor_definition:
+- name: pead
+  style_category: event
+  description: 盈余公告后漂移(Post-Earnings Announcement Drift)。SUE因子的有效代理，计算财报公告日后N个交易日的累计收益率，捕捉市场对盈利"惊喜"的持续反应。
+  action: technical_calcu
+  time_alignment: pre_aligned

@@ -1,0 +1,22 @@
+# style_category: risk
+factor_definition:
+- name: beta
+  style_category: risk
+  description: 贝塔系数，衡量个股相对于市场基准的系统性风险。（你到底是跟着别人屁股后面转，还是凭自己的真本事 （用到协同
+  action: technical_calcu
+  time_alignment: shift
+- name: volatility_120d
+  style_category: risk
+  description: 120日年化波动率，衡量个股自身的价格波动风险。低波动股票有时反而有超额收益。
+  action: technical_calcu
+  time_alignment: shift
+- name: volatility_90d
+  style_category: risk
+  description: 90日年化波动率，衡量个股自身的价格波动风险（特质风险）。低波动股票有时反而有超额收益。
+  action: technical_calcu
+  time_alignment: shift
+- name: volatility_40d
+  style_category: risk
+  description: 40日年化波动率，衡量个股自身的价格波动风险（特质风险）。低波动股票有时反而有超额收益。
+  action: technical_calcu
+  time_alignment: shift

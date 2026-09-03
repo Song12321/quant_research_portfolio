@@ -1,0 +1,22 @@
+# style_category: price
+factor_definition:
+- name: close
+  style_category: price
+  action: null
+  time_alignment: no_shift
+  description: 后复权收盘价，所有价格、收益率、动量计算的基础。
+- name: open
+  style_category: price
+  action: null
+  time_alignment: no_shift
+  description: 后复权开盘价。
+- name: high
+  style_category: price
+  action: null
+  time_alignment: no_shift
+  description: 后复权最高价。
+- name: low
+  style_category: price
+  action: null
+  time_alignment: no_shift
+  description: 后复权最低价。

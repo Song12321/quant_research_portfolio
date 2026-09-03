@@ -1,0 +1,12 @@
+# style_category: hodgepodge_combo
+factor_definition:
+- name: three_low_one_high
+  style_category: hodgepodge_combo
+  description: 三低一高合成因子：低估值、低价格、低关注、高改善。
+  action: composite
+  time_alignment: pre_aligned
+  cal_require_base_fields:
+  - three_low_one_high_value
+  - three_low_one_high_lowprice
+  - three_low_one_high_lowattn
+  - three_low_one_high_improve

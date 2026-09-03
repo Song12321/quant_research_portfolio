@@ -1,0 +1,48 @@
+# style_category: quality
+factor_definition:
+- name: three_low_one_high_improve
+  style_category: quality
+  description: 三低一高-高改善：盈利改善与现金质量/应计。
+  action: technical_calcu
+  time_alignment: shift
+  preheat_trading_days: 253
+- name: debt_252d_ratio
+  style_category: quality
+  description: ''
+  action: technical_calcu
+  time_alignment: pre_aligned
+- name: roa_ttm
+  style_category: quality
+  description: 捕捉公司盈利能力的“边际变化”或“加速度”。一个公司的ROE很高固然好， 但如果其ROE正在持续改善（环比为正），这通常是更强的未来超额收益信号。 这是一个结合了质量与动量思想的因子。
+  action: technical_calcu
+  time_alignment: pre_aligned
+- name: roe_change_q
+  style_category: quality
+  description: 捕捉公司盈利能力的“边际变化”或“加速度”。一个公司的ROE很高固然好， 但如果其ROE正在持续改善（环比为正），这通常是更强的未来超额收益信号。 这是一个结合了质量与动量思想的因子。
+  action: technical_calcu
+  time_alignment: pre_aligned
+- name: roe_ttm
+  style_category: quality
+  description: 净资产收益率(Return on Equity)，衡量公司为股东创造利润的能力，巴菲特最看重的指标之一。
+  action: technical_calcu
+  time_alignment: pre_aligned
+- name: gross_margin_ttm
+  style_category: quality
+  description: 销售毛利率(TTM)，反映了公司产品或服务的“护城河”和议价能力。
+  action: technical_calcu
+  time_alignment: pre_aligned
+- name: debt_to_assets
+  style_category: quality
+  description: 资产负债率，衡量公司的财务杠杆和偿债风险，是稳健性的重要体现。
+  action: technical_calcu
+  time_alignment: pre_aligned
+- name: operating_accruals
+  style_category: quality
+  description: 经营性应计利润。(净利润TTM - 经营现金流TTM) / 总资产。衡量利润中的“纸面富贵”成分，值越高代表利润质量越差，是一个反向指标。
+  action: technical_calcu
+  time_alignment: pre_aligned
+- name: earnings_stability
+  style_category: quality
+  description: 盈利稳定性。计算过去5年(20个季度)单季归母净利润的标准差的倒数。标准差越小，盈利越稳定，因子值越高。
+  action: technical_calcu
+  time_alignment: pre_aligned

@@ -1,0 +1,7 @@
+# style_category: market_microstructure
+factor_definition:
+- name: vwap_deviation_20d
+  style_category: market_microstructure
+  description: 衡量后复权收盘价(close_hfq)相对于后复权全天交易均价(vwap_hfq)的偏离程度， 并对该偏离度取20日平均，以获得更平滑的信号
+  action: technical_calcu
+  time_alignment: shift

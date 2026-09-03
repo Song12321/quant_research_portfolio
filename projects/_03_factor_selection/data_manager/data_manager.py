@@ -25,6 +25,7 @@ from projects._03_factor_selection.data_manager.suspend_state import (
     _aggregate_suspend_events_to_eod_states,
     _build_suspend_eod_matrix,
 )
+from projects._03_factor_selection.data_manager.stock_history import apply_history_days_filter
 from projects._03_factor_selection.utils.IndustryMap import PointInTimeIndustryMap
 from quant_lib.data_loader import DataLoader
 from projects._03_factor_selection.utils.component_loader import IndexComponentLoader
@@ -397,6 +398,8 @@ class DataManager:
                                                            end_date=self.research_end_date)
 
         logger.info("正在重建每日收盘后的可交易状态矩阵...")
+        # 完整历史用于确定研究期首日的既有状态；同日多事件先在独立模块内确定性聚合，
+        # 再把离散的日终状态变化传播到研究期交易日。
         daily_states = _aggregate_suspend_events_to_eod_states(load_suspend_d_df())
         tradeable_matrix = _build_suspend_eod_matrix(daily_states, trading_dates, ts_codes)
 
@@ -459,48 +462,16 @@ class DataManager:
         self.st_matrix = st_matrix.astype(bool)
         return self.st_matrix
 
-    # ok 为什么不需要shift1 因为企业上市信息，很很早的信息，不属于后面信息
-    def _filter_new_stocks(self, stock_pool_df: pd.DataFrame, months: int = 6) -> pd.DataFrame:
-        """
-        剔除上市时间小于指定月数的股票。
-        """
-
-        if 'list_date' not in self.raw_dfs:
-            raise ValueError("缺少上市日期数据(list_date)，跳过新股过滤。")
-
-        list_dates_df = self.raw_dfs['list_date']
-        if list_dates_df.empty:
-            return stock_pool_df
-
-        # --- 1. 对齐数据 ---
-        aligned_universe, aligned_list_dates = stock_pool_df.align(list_dates_df, join='left')
-
-        # --- 2. 【核心修正】强制转换数据类型 ---
-        # 在提取 .values 之前，确保整个DataFrame是np.datetime64类型
-        # errors='coerce' 会将任何无法转换的值（比如空值或错误字符串）变成 NaT (Not a Time)
-        try:
-            list_dates_converted = aligned_list_dates.apply(pd.to_datetime, errors='raise')
-        except Exception as e:
-            raise ValueError(f"上市日期数据无法转换为日期格式，请检查数据源: {e}")
-            # return stock_pool_df  # Or handle error appropriately
-
-        # --- 3. 向量化计算 ---
-        dates_arr = aligned_universe.index.values[:, np.newaxis]
-
-        # 现在 list_dates_arr 的 dtype 将是 <M8[ns]
-        list_dates_arr = list_dates_converted.values
-
-        # 由于 NaT - NaT = NaT, 我们需要处理 NaT。广播计算本身不会报错。
-        time_since_listing = dates_arr - list_dates_arr
-
-        # --- 4. 创建并应用掩码 ---
-        threshold = pd.Timedelta(days=months * 30.5)
-        # NaT < threshold 会是 False, 所以 NaT 值不会被错误地当作新股
-        is_new_mask = time_since_listing < threshold
-
-        aligned_universe.values[is_new_mask] = False
-        self.show_stock_nums_for_per_day("6个月内上市的过滤！", aligned_universe)
-        return aligned_universe
+    # 使用截至 T-1 收盘可观察到的有效交易日数，避免把 T 日收盘价用于 T 日选股。
+    def _filter_by_history_days(self, stock_pool_df: pd.DataFrame, history_days: int) -> pd.DataFrame:
+        filtered_pool = apply_history_days_filter(
+            stock_pool_df,
+            self.raw_dfs.get('close_hfq'),
+            history_days,
+        )
+        if history_days:
+            self.show_stock_nums_for_per_day(f"有效交易日少于{history_days}天的过滤", filtered_pool)
+        return filtered_pool
 
     # ok 已经处理前视偏差
     def _filter_st_stocks(self, stock_pool_df: pd.DataFrame) -> pd.DataFrame:
@@ -575,12 +546,13 @@ class DataManager:
         if self._tradeable_matrix_by_suspend_resume is None:
             raise ValueError("警告: 未能构建 _tradeable_matrix_by_suspend_resume 状态矩阵。")
 
-            # 1. 【修正细节】shift 时，用 True 填充第一行，因为默认股票是可交易的。
+        # 矩阵 T 行表示 T 日收盘后的状态，不能用于 T 日开盘前的选股决策。
+        # shift(1) 后，T 日股票池只读取 T-1 日终状态；首行没有更早研究期行，
+        # 延续既有约定填 True。该掩码不是 T 日盘中任意时刻的实际成交能力。
         tradeable_mask_shifted = self._tradeable_matrix_by_suspend_resume.shift(1, fill_value=True)
 
-        # 2. 对齐股票池和可交易状态掩码
-        #    join='left' 保证了股票池的股票集合不发生变化
-        #    fill_value=True 假设未在停复牌信息中出现的股票是可交易的（安全做法）
+        # 以股票池为左侧边界，避免停复牌数据增加或删除股票池的股票集合；
+        # 未出现停复牌状态的单元格没有不可交易证据，延续原逻辑填 True。
         aligned_universe, aligned_tradeable_mask = stock_pool_df.align(
             tradeable_mask_shifted,
             join='left',
@@ -590,8 +562,7 @@ class DataManager:
         # 统计过滤前的数量
         pre_filter_count = aligned_universe.sum().sum()
 
-        # 3. 【修正核心Bug】使用布尔“与”运算进行过滤
-        #    最终的股票池 = 之前的股票池 AND 可交易的股票池
+        # 停复牌过滤只能从既有股票池中剔除，不得把其他过滤器已排除的股票重新加入。
         final_pool = aligned_universe & aligned_tradeable_mask
 
         # 统计过滤后的数量
@@ -946,8 +917,12 @@ class DataManager:
         universe_filters = stock_pool_config_profile['filters']
 
         # --普适性 过滤 （通用过滤）
-        if universe_filters['remove_new_stocks']:
-            final_stock_pool_df = self._filter_new_stocks(final_stock_pool_df, 18)  # 新股票数据少，数据不全不具参考，所以淘汰
+        if 'history_days' not in universe_filters:
+            raise ValueError("股票池 filters 缺少必填字段 history_days。")
+        final_stock_pool_df = self._filter_by_history_days(
+            final_stock_pool_df,
+            universe_filters['history_days'],
+        )
         if universe_filters['remove_st']:
             # 构建ST矩阵
             self.build_st_period_from_namechange()

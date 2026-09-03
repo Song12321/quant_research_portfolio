@@ -1,0 +1,22 @@
+# style_category: growth
+factor_definition:
+- name: net_profit_growth_ttm
+  style_category: growth
+  description: 滚动12个月的归母净利润同比增长率。相比单季度YoY增长率，TTM增长率更平滑，能有效滤除季节性波动和单季度的短期“异动”，更好地反映公司的稳定增长趋势。
+  action: technical_calcu
+  time_alignment: pre_aligned
+- name: revenue_growth_ttm
+  style_category: growth
+  description: 滚动12个月的营业总收入同比增长率。衡量公司主营业务规模的扩张速度，相比净利润增长，更难被非经营性损益操纵。
+  action: technical_calcu
+  time_alignment: pre_aligned
+- name: net_profit_growth_yoy
+  style_category: growth
+  description: 净利润同比增长率(YoY)，最直接的成长性指标。
+  action: technical_calcu
+  time_alignment: pre_aligned
+- name: total_revenue_growth_yoy
+  style_category: growth
+  description: 营业收入同比增长率(YoY)，衡量公司市场扩张和占有率的能力。
+  action: technical_calcu
+  time_alignment: pre_aligned

@@ -18,8 +18,8 @@ class IndexFilterConfig:
 @dataclass
 class PoolFiltersConfig:
     """普适性的过滤器配置"""
+    history_days: int
     remove_st: bool = True
-    remove_new_stocks: bool = True
     adapt_tradeable_matrix_by_suspend_resume: bool = True
     min_liquidity_percentile: float = 0.0
     min_market_cap_percentile: float = 0.0
@@ -99,12 +99,14 @@ really_eva_SETTING = {
 
 # 模板1: 机构标准池 (基于沪深300)
 
-def make_pool_profile(pool_name, Index_filter, index_code,remove_st,remove_new_stocks,adapt_tradeable_matrix_by_suspend_resume, min_liquidity_percentile, min_market_cap_percentile):
+def make_pool_profile(pool_name, Index_filter, index_code, remove_st, history_days,
+                      adapt_tradeable_matrix_by_suspend_resume, min_liquidity_percentile,
+                      min_market_cap_percentile):
     profile = StockPoolProfile(
         index_filter=IndexFilterConfig(enable=Index_filter, index_code=index_code),
         filters=PoolFiltersConfig(
+            history_days=history_days,
             remove_st = remove_st,
-            remove_new_stocks = remove_new_stocks,
             adapt_tradeable_matrix_by_suspend_resume = adapt_tradeable_matrix_by_suspend_resume,
             min_liquidity_percentile=min_liquidity_percentile,
             min_market_cap_percentile=min_market_cap_percentile
@@ -115,28 +117,28 @@ def make_pool_profile(pool_name, Index_filter, index_code,remove_st,remove_new_s
         profile
     }
 
-HS300_fast_profile = make_pool_profile('HS300', True, INDEX_CODES['HS300'],False,False,False, 0, 0)
-CSI300_most_basic_profile = make_pool_profile('institutional_stock_pool', True, '000300',True,True,True, 0, 0)
-CSI300_more_filter_profile = make_pool_profile('institutional_stock_pool', True, '000300.',True,True,True, 0.1, 0.05)
-ZZ1000_more_filter_profile = make_pool_profile('ZZ1000', True, INDEX_CODES['ZZ1000'],True,True,True, 0.1, 0.05)
-ZZ500_more_filter_profile = make_pool_profile('ZZ500', True, INDEX_CODES['ZZ500'],True,True,True, 0.1, 0.05)
-ZZ1000_no_filter_profile = make_pool_profile('ZZ1000', True, INDEX_CODES['ZZ1000'],False,False,False, 0, 0)
-HS300_no_filter_profile = make_pool_profile('HS300', True, INDEX_CODES['HS300'],False,False,False, 0, 0)
-CSI300_none_TFF_most_basic_profile = make_pool_profile('institutional_stock_pool', True, '000300',True,False,False, 0, 0)
-CSI300_none_FTF_most_basic_profile = make_pool_profile('institutional_stock_pool', True, '000300',False,True,False, 0, 0)
-CSI300_none_FFT_most_basic_profile = make_pool_profile('institutional_stock_pool', True, '000300',False,False,True, 0, 0)
-CSI300_none_FFF_most_basic_profile = make_pool_profile('institutional_stock_pool', True, '000300',False,False,False, 0, 0)
-ALL_none_FFF_most_basic_profile = make_pool_profile('ALL', False, INDEX_CODES['ZZ_ALL'],False,False,False, 0, 0)
-fast_hs300_profile = make_pool_profile('fast', True, INDEX_CODES['HS300'], False, False, False, 0, 0)
-东北_zz500_profile = make_pool_profile('ZZ500', True, INDEX_CODES['ZZ500'], True, True, True, 0, 0)
-CSI500_none_FFF_most_basic_profile = make_pool_profile('microstructure_stock_pool', True, INDEX_CODES['ZZ500'],False,False,False, 0, 0)
-CSI500_most_basic_profile = make_pool_profile('institutional_stock_pool', True, '000905', True,True,True,0, 0)
+HS300_fast_profile = make_pool_profile('HS300', True, INDEX_CODES['HS300'], False, 0, False, 0, 0)
+CSI300_most_basic_profile = make_pool_profile('institutional_stock_pool', True, '000300', True, 252, True, 0, 0)
+CSI300_more_filter_profile = make_pool_profile('institutional_stock_pool', True, '000300.', True, 252, True, 0.1, 0.05)
+ZZ1000_more_filter_profile = make_pool_profile('ZZ1000', True, INDEX_CODES['ZZ1000'], True, 252, True, 0.1, 0.05)
+ZZ500_more_filter_profile = make_pool_profile('ZZ500', True, INDEX_CODES['ZZ500'], True, 252, True, 0.1, 0.05)
+ZZ1000_no_filter_profile = make_pool_profile('ZZ1000', True, INDEX_CODES['ZZ1000'], False, 0, False, 0, 0)
+HS300_no_filter_profile = make_pool_profile('HS300', True, INDEX_CODES['HS300'], False, 0, False, 0, 0)
+CSI300_none_TFF_most_basic_profile = make_pool_profile('institutional_stock_pool', True, '000300', True, 0, False, 0, 0)
+CSI300_none_FTF_most_basic_profile = make_pool_profile('institutional_stock_pool', True, '000300', False, 252, False, 0, 0)
+CSI300_none_FFT_most_basic_profile = make_pool_profile('institutional_stock_pool', True, '000300', False, 0, True, 0, 0)
+CSI300_none_FFF_most_basic_profile = make_pool_profile('institutional_stock_pool', True, '000300', False, 0, False, 0, 0)
+ALL_none_FFF_most_basic_profile = make_pool_profile('ALL', False, INDEX_CODES['ZZ_ALL'], False, 0, False, 0, 0)
+fast_hs300_profile = make_pool_profile('fast', True, INDEX_CODES['HS300'], False, 0, False, 0, 0)
+东北_zz500_profile = make_pool_profile('ZZ500', True, INDEX_CODES['ZZ500'], True, 252, True, 0, 0)
+CSI500_none_FFF_most_basic_profile = make_pool_profile('microstructure_stock_pool', True, INDEX_CODES['ZZ500'], False, 0, False, 0, 0)
+CSI500_most_basic_profile = make_pool_profile('institutional_stock_pool', True, '000905', True, 252, True, 0, 0)
 # 用于我需要在最真实的环境，交易，需要必须要过滤流动差劲的
-_massive_test_ZZ800_profile = make_pool_profile('ZZ800', True, INDEX_CODES['ZZ800'], True, True, True, 0.1, 0.05)
-temp_test_ZZ800_profile = make_pool_profile('ZZ800', True, INDEX_CODES['ZZ800'], True, False, True, 0, 0)
-fast_ZZ800_profile = make_pool_profile('ZZ800', True, INDEX_CODES['ZZ800'], False, False, False, 0, 0)
-fast_ZZ1000_profile = make_pool_profile('ZZ1000', True, INDEX_CODES['ZZ1000'], False, False, False, 0, 0)
-pool_for_massive_test_MICROSTRUCTURE_profile = make_pool_profile('microstructure_stock_pool', False, 'None', True,True,True,0.2, 0.2)
+_massive_test_ZZ800_profile = make_pool_profile('ZZ800', True, INDEX_CODES['ZZ800'], True, 252, True, 0.1, 0.05)
+temp_test_ZZ800_profile = make_pool_profile('ZZ800', True, INDEX_CODES['ZZ800'], True, 0, True, 0, 0)
+fast_ZZ800_profile = make_pool_profile('ZZ800', True, INDEX_CODES['ZZ800'], False, 0, False, 0, 0)
+fast_ZZ1000_profile = make_pool_profile('ZZ1000', True, INDEX_CODES['ZZ1000'], False, 0, False, 0, 0)
+pool_for_massive_test_MICROSTRUCTURE_profile = make_pool_profile('microstructure_stock_pool', False, 'None', True, 252, True, 0.2, 0.2)
 
 
 def generate_dynamic_config(
