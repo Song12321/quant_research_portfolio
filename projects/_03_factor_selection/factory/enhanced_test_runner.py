@@ -25,7 +25,7 @@ from quant_lib.config.logger_config import log_success, setup_logger
 
 
 logger = setup_logger(__name__)
-DEFAULT_INNER_CONFIG = Path(__file__).parents[1] / "configs" / "research" / "inner.yaml" #todo不一定是inner
+DEFAULT_INNER_CONFIG = Path(__file__).parents[1] / "configs" / "research" / "inner.yaml" #todonew 不一定是inner
 
 
 class EnhancedTestRunner:
@@ -58,7 +58,9 @@ class EnhancedTestRunner:
         experiment_name = config["experiment_name"]
         self.run_dir = create_run_dir(Path(config["output_root"]), stage, experiment_name)
         write_effective_config(self.run_dir, config)
-        experiments_path = self._write_experiments(config["experiments"])
+        experiments_path = self._write_experiments(
+            config["experiments"], config["stock_pool_name"]
+        )
         write_manifest(self.run_dir, stage, experiment_name, "running")
         try:
             results = self._execute_experiments(experiments_path, config)
@@ -100,6 +102,7 @@ class EnhancedTestRunner:
             raise ValueError("inner.yaml.experiments 必须是非空列表")
         self._validate_experiments(experiments)
         self._validate_inner_evaluation(config.get("evaluation"))
+        self._require_non_empty_string(config, "stock_pool_name")
         self._require_non_empty_string(config, "experiment_name")
         self._require_non_empty_string(config, "output_root")
         factor_path = self._resolve_config_path(config, "factor_definition_file")
@@ -145,10 +148,16 @@ class EnhancedTestRunner:
                     raise ValueError(f"价格数据为空: pool={pool_name}, field={price_type}")
                 price.to_parquet(output_dir / f"{price_type}.parquet")
 
-    def _write_experiments(self, experiments: list[dict]) -> Path:
+    def _write_experiments(
+        self, experiments: list[dict], stock_pool_name: str
+    ) -> Path:
         path = self.run_dir / "experiments.yaml"
+        runtime_experiments = [
+            {"factor_name": row["factor_name"], "stock_pool_name": stock_pool_name}
+            for row in experiments
+        ]
         path.write_text(
-            yaml.safe_dump(experiments, allow_unicode=True, sort_keys=False),
+            yaml.safe_dump(runtime_experiments, allow_unicode=True, sort_keys=False),
             encoding="utf-8",
         )
         return path
@@ -220,20 +229,9 @@ class EnhancedTestRunner:
                     f"复合因子 {experiment['factor_name']} 的子因子必须在同次 Inner 中提前完成: "
                     f"factors={missing}"
                 )
-            wrong_pool = [
-                name
-                for name in sub_factor_names
-                if earlier[name]["stock_pool_name"] != experiment["stock_pool_name"]
-            ]
-            if wrong_pool:
-                raise ValueError(
-                    f"复合因子 {experiment['factor_name']} 的子因子股票池必须一致: "
-                    f"factors={wrong_pool}"
-                )
-
     @staticmethod
     def _validate_experiments(experiments: list[dict]) -> None:
-        expected = {"factor_name", "stock_pool_name"}
+        expected = {"factor_name"}
         for index, row in enumerate(experiments):
             if not isinstance(row, dict) or set(row) != expected:
                 raise ValueError(

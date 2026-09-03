@@ -5,22 +5,22 @@ data_root: 'D:\lqs\quantity\parquet_data'
 factor_definition_file: '../factors/factors.yaml'
 direction_output_file: '../factors/inner_resolved_directions.yaml'
 
+stock_pool_name: 'ZZ800'
+
 experiments:
   - factor_name: 'three_low_one_high_value'
-    stock_pool_name: 'ZZ800'
   - factor_name: 'three_low_one_high_lowprice'
-    stock_pool_name: 'ZZ800'
   - factor_name: 'three_low_one_high_lowattn'
-    stock_pool_name: 'ZZ800'
   - factor_name: 'three_low_one_high_improve'
-    stock_pool_name: 'ZZ800'
   - factor_name: 'three_low_one_high'
-    stock_pool_name: 'ZZ800'
 
 backtest:
   start_date: '2024-01-01'
   end_date: '2025-07-10'
   max_lookback_window: 450
+
+不应该命名为backtest!
+  max_lookback_window: 450 这个最好是没个因子单独自己配置！，但是股票池好像也需要配置这个！
 
 stock_pool_profiles:
   ZZ800:
@@ -28,13 +28,13 @@ stock_pool_profiles:
       enable: true
       index_code: '000906'
     filters:
-      remove_st: true
-      remove_new_stocks: true
-      adapt_tradeable_matrix_by_suspend_resume: true
-      min_liquidity_percentile: 0.10
-      min_market_cap_percentile: 0.05
+      remove_st: true #这个有未来函数风险吗
+      remove_new_stocks: true # 这个改成历史最小天数配置，更通用。
+      adapt_tradeable_matrix_by_suspend_resume: true #这个这个有未来函数风险吗
+      min_liquidity_percentile: 0.10 #这个配置阈值思考正确性！
+      min_market_cap_percentile: 0.05#这个配置阈值思考正确性！
 
-preprocessing:
+preprocessing: #思考以下配置 合理吗 ？问题2：是基于全市场？ 还是当前指定的股票池？
   winsorization:
     method: 'mad'
     mad_threshold: 3.0
@@ -42,7 +42,7 @@ preprocessing:
     by_industry:
       primary_level: 'l2_code'
       fallback_level: 'l1_code'
-      min_samples: 10
+      min_samples: 10 #这个是低于10个会咋样？
   standardization:
     method: 'zscore'
     by_industry:
@@ -57,5 +57,5 @@ preprocessing:
 
 evaluation:
   quantiles: 5
-  forward_periods: [5, 10, 20]
-  returns_calculator: ['o2o']
+  forward_periods: [5, 10, 20 , 40]
+  returns_calculator: ['o2o'] #思考 用什么！c0c? 结合我们最终要上实盘思考！
