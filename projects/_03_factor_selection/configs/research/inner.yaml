@@ -6,6 +6,14 @@ factor_definition_file: '../factors/factors.yaml'
 direction_output_file: '../factors/inner_resolved_directions.yaml'
 
 experiments:
+  - factor_name: 'three_low_one_high_value'
+    stock_pool_name: 'ZZ800'
+  - factor_name: 'three_low_one_high_lowprice'
+    stock_pool_name: 'ZZ800'
+  - factor_name: 'three_low_one_high_lowattn'
+    stock_pool_name: 'ZZ800'
+  - factor_name: 'three_low_one_high_improve'
+    stock_pool_name: 'ZZ800'
   - factor_name: 'three_low_one_high'
     stock_pool_name: 'ZZ800'
 

@@ -4,10 +4,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from projects._03_factor_selection.factory.enhanced_test_runner import EnhancedTestRunner
 from projects._03_factor_selection.factor_manager.factor_composite.factor_synthesizer import (
     FactorSynthesizer,
 )
-from projects._03_factor_selection.factor_manager.factor_manager import FactorResultsManager
+from projects._03_factor_selection.factor_manager.factor_manager import (
+    FactorManager,
+    FactorResultsManager,
+)
 
 
 def build_results() -> dict:
@@ -81,3 +85,91 @@ def test_equal_average_propagates_missing_values():
     result = FactorSynthesizer.equal_average([first, second])
     expected = pd.DataFrame([[2.0, np.nan]], columns=["a", "b"])
     pd.testing.assert_frame_equal(result, expected, check_exact=True)
+
+
+class _CompositeDataManager:
+    def get_cal_require_base_fields_for_composite(self, name):
+        assert name == "combo"
+        return ["positive", "negative"]
+
+
+class _CompositeFactorManager:
+    data_manager = _CompositeDataManager()
+
+    def __init__(self, directions):
+        self.directions = directions
+
+    def get_inner_resolved_direction(self, factor_name):
+        if factor_name not in self.directions:
+            raise ValueError(f"合成因子缺少本次 Inner 子因子方向：factor={factor_name}")
+        return self.directions[factor_name]
+
+
+class _IdentityProcessor:
+    @staticmethod
+    def _standardize_robust(factor):
+        return factor
+
+
+def test_composite_uses_resolved_child_directions():
+    manager = _CompositeFactorManager({"positive": 1, "negative": -1})
+    synthesizer = FactorSynthesizer(manager, object(), _IdentityProcessor())
+    factors = {
+        "positive": pd.DataFrame([[1.0, 3.0]], columns=["a", "b"]),
+        "negative": pd.DataFrame([[2.0, -4.0]], columns=["a", "b"]),
+    }
+    synthesizer.get_processed_sub_factor = lambda name, _: factors[name]
+
+    actual = synthesizer.synthesize_equal_factor("combo", "ZZ800")
+
+    expected = pd.DataFrame([[-0.5, 3.5]], columns=["a", "b"])
+    pd.testing.assert_frame_equal(actual, expected, check_exact=True)
+
+
+def test_composite_rejects_missing_resolved_child_direction():
+    manager = _CompositeFactorManager({"positive": 1})
+    synthesizer = FactorSynthesizer(manager, object(), _IdentityProcessor())
+    synthesizer.get_processed_sub_factor = lambda *_: pd.DataFrame([[1.0]], columns=["a"])
+
+    with pytest.raises(ValueError, match="缺少本次 Inner 子因子方向.*negative"):
+        synthesizer.synthesize_equal_factor("combo", "ZZ800")
+
+
+def test_composite_dependencies_require_earlier_same_pool_children():
+    definitions = [
+        {"name": "child", "action": "technical_calcu"},
+        {"name": "combo", "action": "composite", "cal_require_base_fields": ["child"]},
+    ]
+    experiments = [
+        {"factor_name": "combo", "stock_pool_name": "ZZ800"},
+        {"factor_name": "child", "stock_pool_name": "ZZ800"},
+    ]
+
+    with pytest.raises(ValueError, match="提前完成.*child"):
+        EnhancedTestRunner._validate_composite_dependencies(experiments, definitions)
+
+
+def test_composite_dependencies_reject_different_child_pool():
+    definitions = [
+        {"name": "child", "action": "technical_calcu"},
+        {"name": "combo", "action": "composite", "cal_require_base_fields": ["child"]},
+    ]
+    experiments = [
+        {"factor_name": "child", "stock_pool_name": "ZZ500"},
+        {"factor_name": "combo", "stock_pool_name": "ZZ800"},
+    ]
+
+    with pytest.raises(ValueError, match="股票池必须一致.*child"):
+        EnhancedTestRunner._validate_composite_dependencies(experiments, definitions)
+
+
+def test_inner_direction_store_rejects_missing_and_duplicate_values():
+    manager = FactorManager.__new__(FactorManager)
+    manager.inner_resolved_directions = {}
+    manager.store_inner_resolved_direction("child", -1)
+
+    assert manager.get_inner_resolved_direction("child") == -1
+    with pytest.raises(ValueError, match="已存在"):
+        manager.store_inner_resolved_direction("child", 1)
+    with pytest.raises(ValueError, match="缺少本次 Inner 子因子方向.*missing"):
+        manager.get_inner_resolved_direction("missing")

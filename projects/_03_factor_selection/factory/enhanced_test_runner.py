@@ -83,6 +83,7 @@ class EnhancedTestRunner:
                     stock_pool_index_name=row.stock_pool_name,
                 )
                 direction = self._store_direction(row.factor_name, research_result, config)
+                self.factor_manager.store_inner_resolved_direction(row.factor_name, direction)
                 results.append(self._result_row(row, direction))
                 self._snapshot_direction_config(results)
                 del research_result
@@ -115,6 +116,7 @@ class EnhancedTestRunner:
         config["factor_definition_file"] = str(factor_path)
         config["direction_output_file"] = str(self.direction_output_path)
         config["description"] = description
+        self._validate_composite_dependencies(experiments, definitions)
         self._validate_direction_target(experiments)
         return config
 
@@ -198,6 +200,36 @@ class EnhancedTestRunner:
         duplicates = sorted(row["factor_name"] for row in experiments if row["factor_name"] in factors)
         if duplicates:
             raise ValueError(f"Inner 因子方向已存在，禁止覆盖: factors={duplicates}")
+
+    @staticmethod
+    def _validate_composite_dependencies(experiments: list[dict], definitions: list[dict]) -> None:
+        definitions_by_name = {definition.get("name"): definition for definition in definitions}
+        for index, experiment in enumerate(experiments):
+            definition = definitions_by_name[experiment["factor_name"]]
+            if definition.get("action") != "composite":
+                continue
+            sub_factor_names = definition.get("cal_require_base_fields")
+            if not isinstance(sub_factor_names, list) or not sub_factor_names:
+                raise ValueError(
+                    f"复合因子 {experiment['factor_name']} 必须配置非空子因子列表"
+                )
+            earlier = {row["factor_name"]: row for row in experiments[:index]}
+            missing = [name for name in sub_factor_names if name not in earlier]
+            if missing:
+                raise ValueError(
+                    f"复合因子 {experiment['factor_name']} 的子因子必须在同次 Inner 中提前完成: "
+                    f"factors={missing}"
+                )
+            wrong_pool = [
+                name
+                for name in sub_factor_names
+                if earlier[name]["stock_pool_name"] != experiment["stock_pool_name"]
+            ]
+            if wrong_pool:
+                raise ValueError(
+                    f"复合因子 {experiment['factor_name']} 的子因子股票池必须一致: "
+                    f"factors={wrong_pool}"
+                )
 
     @staticmethod
     def _validate_experiments(experiments: list[dict]) -> None:

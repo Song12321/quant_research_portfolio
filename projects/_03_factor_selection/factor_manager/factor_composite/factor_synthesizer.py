@@ -49,10 +49,11 @@ class FactorSynthesizer:
         if not sub_factor_names:
             raise ValueError(f"复合因子 {composite_name} 必须显式配置至少一个子因子")
 
-        processed_factors = [
-            self.get_processed_sub_factor(name, stock_pool_name)
-            for name in sub_factor_names
-        ]
+        processed_factors = []
+        for name in sub_factor_names:
+            processed = self.get_processed_sub_factor(name, stock_pool_name)
+            direction = self.factor_manager.get_inner_resolved_direction(name)
+            processed_factors.append(processed * direction)
         composite = self.equal_average(processed_factors)
         return self.processor._standardize_robust(composite)
 

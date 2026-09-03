@@ -189,6 +189,7 @@ class FactorManager:
 
         # 测试结果缓存
         self.test_results = {}
+        self.inner_resolved_directions: Dict[str, int] = {}
 
         logger.info("因子管理器初始化完成")
 
@@ -201,6 +202,23 @@ class FactorManager:
         self.factors_cache.clear()
         self.data_manager.clear_temporary_raw_fields()
         logger.info(f"因子缓存已清理，释放了 {cache_size} 个缓存项")
+
+    def store_inner_resolved_direction(self, factor_name: str, direction: int) -> None:
+        """保存本次 Inner 已完成因子的冻结方向。"""
+        if not isinstance(factor_name, str) or not factor_name:
+            raise ValueError("Inner 方向写入失败：因子名必须是非空字符串")
+        if isinstance(direction, bool) or direction not in (-1, 1):
+            raise ValueError(f"Inner 方向写入失败：因子 {factor_name} 的方向必须为 -1 或 1")
+        if factor_name in self.inner_resolved_directions:
+            raise ValueError(f"Inner 方向写入失败：因子 {factor_name} 已存在")
+        self.inner_resolved_directions[factor_name] = direction
+
+    def get_inner_resolved_direction(self, factor_name: str) -> int:
+        """读取本次 Inner 已冻结方向；禁止使用历史或默认方向。"""
+        try:
+            return self.inner_resolved_directions[factor_name]
+        except KeyError as error:
+            raise ValueError(f"合成因子缺少本次 Inner 子因子方向：factor={factor_name}") from error
 
     def get_cache_info(self) -> Dict[str, Any]:
         """
