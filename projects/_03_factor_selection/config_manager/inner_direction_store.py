@@ -29,9 +29,9 @@ def _period_keys(configured_periods: Sequence[int]) -> list[str]:
     return keys
 
 
-def _extract_ic_means(
+def _extract_ic_means_and_valid_days(
     period_keys: list[str], ic_stats: Mapping[str, Mapping[str, object]]
-) -> dict[str, float]:
+) -> tuple[dict[str, float], dict[str, int]]:
     if not isinstance(ic_stats, Mapping):
         raise TypeError(
             "Inner 方向计算失败：ic_stats_periods_dict_processed 必须是映射"
@@ -43,6 +43,7 @@ def _extract_ic_means(
             f"实际={actual_periods!r}, 预期={period_keys!r}"
         )
     means = {}
+    valid_days = {}
     for key in period_keys:
         stats = ic_stats[key]
         if not isinstance(stats, Mapping) or "ic_mean" not in stats:
@@ -52,8 +53,26 @@ def _extract_ic_means(
             raise ValueError(
                 f"Inner 方向计算失败：周期 {key} 的 ic_mean={value!r}，预期为有限数"
             )
+        if "ic_Valid Days" not in stats:
+            raise ValueError(f"Inner 方向计算失败：周期 {key} 缺少 ic_Valid Days")
+        count = stats["ic_Valid Days"]
+        if isinstance(count, bool) or not isinstance(count, Integral) or count <= 0:
+            raise ValueError(
+                f"Inner 方向计算失败：周期 {key} 的 ic_Valid Days={count!r}，"
+                "预期为正整数"
+            )
         means[key] = float(value)
-    return means
+        valid_days[key] = int(count)
+    return means, valid_days
+
+
+def _calculate_sample_weighted_score(
+    means: Mapping[str, float], valid_days: Mapping[str, int]
+) -> tuple[float, dict[str, float]]:
+    total_valid_days = math.fsum(valid_days.values())
+    weights = {key: valid_days[key] / total_valid_days for key in means}
+    score = math.fsum(means[key] * weights[key] for key in means)
+    return score, weights
 
 
 def _load_direction_document(output_path: Path) -> dict:
@@ -94,17 +113,19 @@ def resolve_and_store_inner_direction(
     inner_run_id: str,
     output_path: PathLike,
 ) -> int:
-    """按各配置周期 ic_mean 的算术平均确定方向，并增量原子写入 YAML。"""
+    """按各周期实际非重叠 IC 有效节点数加权确定方向。"""
     if not isinstance(factor_name, str) or not factor_name.strip():
         raise ValueError("Inner 方向写入失败：factor_name 必须是非空字符串")
     if not isinstance(inner_run_id, str) or not inner_run_id.strip():
         raise ValueError("Inner 方向写入失败：inner_run_id 必须是非空字符串")
     period_keys = _period_keys(configured_periods)
-    means = _extract_ic_means(period_keys, ic_stats_periods_dict_processed)
-    direction_score = math.fsum(means.values()) / len(means)
+    means, valid_days = _extract_ic_means_and_valid_days(
+        period_keys, ic_stats_periods_dict_processed
+    )
+    direction_score, weights = _calculate_sample_weighted_score(means, valid_days)
     if direction_score == 0:
         raise ValueError(
-            f"Inner 方向计算失败：因子 {factor_name} 的多周期 ic_mean 均值为 0"
+            f"Inner 方向计算失败：因子 {factor_name} 的加权多周期 ic_mean 为 0"
         )
     direction = 1 if direction_score > 0 else -1
     target = Path(output_path)
@@ -117,6 +138,8 @@ def resolve_and_store_inner_direction(
         "direction": direction,
         "direction_score": direction_score,
         "ic_mean_by_period": means,
+        "ic_valid_days_by_period": valid_days,
+        "direction_weight_by_period": weights,
         "inner_run_id": inner_run_id,
     }
     _atomic_write_yaml(target, document)

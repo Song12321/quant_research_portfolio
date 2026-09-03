@@ -17,9 +17,6 @@ experiments:
 research_window:
   start_date: '2024-01-01'
   end_date: '2025-07-10'
-  max_lookback_window: 450
-
-# max_lookback_window 最好由各因子单独配置，但股票池似乎也需要此配置。
 
 stock_pool_profiles:
   ZZ800:
@@ -44,13 +41,9 @@ preprocessing: #思考以下配置 合理吗 ？问题2：是基于全市场？ 
       min_samples: 10 #这个是低于10个会咋样？
   standardization:
     method: 'zscore'
-    by_industry:
-      primary_level: 'l2_code'
-      fallback_level: 'l1_code'
-      min_samples: 5
   neutralization:
     enable: true
-    factors: ['market_cap', 'industry']
+    factors: ['market_cap', 'industry'] # 中性化策略定义；程序严格按此列表回归
     by_industry:
       industry_level: 'l1_code'
 

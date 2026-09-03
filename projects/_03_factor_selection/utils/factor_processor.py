@@ -22,7 +22,6 @@ import warnings
 import sys
 from pathlib import Path
 
-from projects._03_factor_selection.config_manager.base_config import FACTOR_STYLE_RISK_MODEL
 from projects._03_factor_selection.factor_manager.classifier.factor_classifier import FactorClassifier
 from projects._03_factor_selection.factor_manager.factor_manager import FactorManager
 from quant_lib.config.constant_config import permanent__day
@@ -365,8 +364,13 @@ class FactorProcessor:
                 prev_trading_date = trading_dates_series.shift(1).loc[date]
                 # 处理回测第一天的边界情况
                 if pd.isna(prev_trading_date):
-                    # log_warning(f"正常现象：日期 {date} 是回测首日，没有前一天的行业数据，跳过分行业处理。")
-                    processed_data[date] = daily_factor_series  # 当天不做处理或执行全市场处理
+                    processed_data[date] = pd.Series(
+                        np.nan, index=daily_factor_series.index, dtype=float
+                    )
+                    log_warning(
+                        f"去极值跳过 {date}：缺少前一交易日行业映射，"
+                        "不能输出未经行业 MAD 处理的因子值。"
+                    )
                     continue
 
                 # 使用 T-1 的日期查询行业地图
@@ -464,7 +468,7 @@ class FactorProcessor:
 
 
         # --- 阶段二：确定中性化因子列表 ---
-        factors_to_neutralize = self.get_regression_need_neutral_factor_list(style_category, target_factor_name)
+        factors_to_neutralize = self.get_regression_need_neutral_factor_list(target_factor_name)
         if not factors_to_neutralize:
             logger.info(f"    > '{target_factor_name}' 因子无需中性化。")
             return processed_factor
@@ -638,9 +642,15 @@ class FactorProcessor:
     # 你的辅助函数稍作调整，专注于计算本身
     def _zscore_series(self, s: pd.Series) -> pd.Series:
         """【辅助函数】对单个Series进行Z-Score标准化"""
-        if s.count() < 2: return pd.Series(0, index=s.index)
+        if s.count() < 2:
+            result = s.copy()
+            result.loc[result.notna()] = 0.0
+            return result
         std_val = s.std()
-        if std_val == 0: return pd.Series(0, index=s.index)
+        if not np.isfinite(std_val) or std_val == 0:
+            result = s.copy()
+            result.loc[result.notna()] = 0.0
+            return result
         mean_val = s.mean()
         return (s - mean_val) / std_val
 
@@ -813,23 +823,38 @@ class FactorProcessor:
 
 
 
-    def get_regression_need_neutral_factor_list(self, style_category,target_factor_name):
+    def get_configured_neutralization_factors(self) -> list[str]:
+        """读取并校验 YAML 中定义的中性化变量。"""
+        neutralization_config = self.preprocessing_config.get('neutralization', {})
+        factors = neutralization_config.get('factors')
+        allowed_factors = {'market_cap', 'industry', 'pct_chg_beta'}
+
+        if not isinstance(factors, list) or not factors:
+            raise ValueError(
+                "preprocessing.neutralization.factors 必须是非空列表，"
+                "例如 ['market_cap', 'industry']。"
+            )
+        if any(not isinstance(factor, str) for factor in factors):
+            raise ValueError("preprocessing.neutralization.factors 只能包含字符串。")
+        if len(factors) != len(set(factors)):
+            raise ValueError("preprocessing.neutralization.factors 不允许重复变量。")
+
+        unknown_factors = set(factors) - allowed_factors
+        if unknown_factors:
+            raise ValueError(
+                "preprocessing.neutralization.factors 包含不支持的变量: "
+                f"{sorted(unknown_factors)}；允许值为 {sorted(allowed_factors)}。"
+            )
+        return factors
+
+    def get_regression_need_neutral_factor_list(self, target_factor_name: str) -> list[str]:
         """
-           【V2专业版】根据因子门派和目标因子名称，动态获取需要用于中性化的因子列表。
+        根据 YAML 策略定义和目标因子名称，取得实际回归变量。
 
-           此版本修复了旧版本的所有问题：
-           1. 采用配置字典，易于扩展。
-           2. 移除了所有硬编码的特例，采用通用逻辑。
-           3. 使用健壮的方式移除元素，避免程序崩溃。
-           """
-        # 1. 根据因子门派，从配置中获取基础的中性化列表
-        base_neutralization_list = FACTOR_STYLE_RISK_MODEL.get(style_category, FACTOR_STYLE_RISK_MODEL['default'])
-        #
-        # logger.info(
-        #     f"因子 '{target_factor_name}' (style列别: {style_category}) 的初始中性化列表为: {base_neutralization_list}")
-
-        # 2. 【核心逻辑】: 动态排除 - 防止因子对自己进行中性化
-        # 使用列表推导式，这是一种更Pythonic、更健壮的方式
+        YAML 是中性化策略的唯一来源；只动态排除目标因子本身，防止
+        自身回归。不会再按 style_category 静默替换配置。
+        """
+        base_neutralization_list = self.get_configured_neutralization_factors()
         final_list = []
         for risk_factor in base_neutralization_list:
             # 检查市值

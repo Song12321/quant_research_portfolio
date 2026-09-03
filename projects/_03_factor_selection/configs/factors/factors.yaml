@@ -137,25 +137,29 @@ factor_definition:
     style_category: 'value'
     description: '三低一高-低估值：短期价值组合 + 长期估值分位。'
     action: 'technical_calcu'
-    time_alignment: 'pre_aligned'
+    time_alignment: 'shift'  # 含 total_mv、dv_ttm 等日收盘后字段，T 日信号只能用 T-1 值。
+    preheat_trading_days: 1320
 
   - name: 'three_low_one_high_lowprice'
     style_category: 'value'
     description: '三低一高-低股价：长周期价格分位 + 当期价格水平。'
     action: 'technical_calcu'
     time_alignment: 'shift'
+    preheat_trading_days: 1320
 
   - name: 'three_low_one_high_lowattn'
     style_category: 'value'
     description: '三低一高-低关注代理：低换手率与低20日平均成交额。'
     action: 'technical_calcu'
     time_alignment: 'shift'
+    preheat_trading_days: 20
 
   - name: 'three_low_one_high_improve'
     style_category: 'quality'
     description: '三低一高-高改善：盈利改善与现金质量/应计。'
     action: 'technical_calcu'
-    time_alignment: 'pre_aligned'
+    time_alignment: 'shift'  # 含 total_mv 日收盘后字段，T 日信号只能用 T-1 值。
+    preheat_trading_days: 253
 
 
 

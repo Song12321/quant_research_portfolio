@@ -51,7 +51,7 @@ def calculate_forward_returns_tradable_o2o(period: int,
     """
     周三收盘算出来的因子！t-1
     周四：t这一日：实际上是t-1的因子数据  （所以需要t日开盘价参与收益率计算
-    计算从 T日开盘价 到 T+period日收盘价 的未来收益率。
+    计算从 T 日开盘价到 T+period 日开盘价的未来收益率。
     包含了生存偏差过滤和截面去极值处理。
     """
     open_prices = open_df.copy(deep=True)

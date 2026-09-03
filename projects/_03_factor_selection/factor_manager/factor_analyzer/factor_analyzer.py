@@ -208,28 +208,45 @@ class FactorAnalyzer:
     ) -> tuple[dict, str]:
         style_category = self.factor_manager.get_style_category(factor_name)
         neutralization = self.factor_processor.preprocessing_config["neutralization"]
-        industry_level = neutralization["by_industry"]["industry_level"]
-        industry_dummies = prepare_industry_dummies(
-            self.factor_manager.data_manager.pit_map,
-            trade_dates,
-            stock_codes,
-            level=industry_level,
+        if not neutralization["enable"]:
+            return {}, style_category
+
+        factors_to_neutralize = (
+            self.factor_processor.get_regression_need_neutral_factor_list(factor_name)
         )
-        beta_request = (
-            "beta",
-            self.factor_manager.data_manager.get_stock_pool_index_code_by_name(
-                stock_pool_name
-            ),
-        )
-        neutral_dfs = {
-            "log_circ_mv": self.factor_manager.get_prepare_aligned_factor_for_analysis(
-                "log_circ_mv", stock_pool_name, True
-            ),
-            "pct_chg_beta": self.factor_manager.get_prepare_aligned_factor_for_analysis(
-                beta_request, stock_pool_name, True
-            ),
-            **{name: frame.shift(1, fill_value=0) for name, frame in industry_dummies.items()},
-        }
+        neutral_dfs = {}
+
+        if "market_cap" in factors_to_neutralize:
+            neutral_dfs["log_circ_mv"] = (
+                self.factor_manager.get_prepare_aligned_factor_for_analysis(
+                    "log_circ_mv", stock_pool_name, True
+                )
+            )
+
+        if "pct_chg_beta" in factors_to_neutralize:
+            beta_request = (
+                "beta",
+                self.factor_manager.data_manager.get_stock_pool_index_code_by_name(
+                    stock_pool_name
+                ),
+            )
+            neutral_dfs["pct_chg_beta"] = (
+                self.factor_manager.get_prepare_aligned_factor_for_analysis(
+                    beta_request, stock_pool_name, True
+                )
+            )
+
+        if "industry" in factors_to_neutralize:
+            industry_level = neutralization["by_industry"]["industry_level"]
+            industry_dummies = prepare_industry_dummies(
+                self.factor_manager.data_manager.pit_map,
+                trade_dates,
+                stock_codes,
+                level=industry_level,
+            )
+            neutral_dfs.update(
+                {name: frame.shift(1, fill_value=0) for name, frame in industry_dummies.items()}
+            )
         return neutral_dfs, style_category
 
     def prepare_data_for_entity_service(

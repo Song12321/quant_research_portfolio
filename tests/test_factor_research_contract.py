@@ -6,14 +6,21 @@ import pandas as pd
 import pytest
 import yaml
 
+from projects._03_factor_selection.config_manager.inner_direction_store import (
+    resolve_and_store_inner_direction,
+)
 from projects._03_factor_selection.factory.enhanced_test_runner import EnhancedTestRunner
 from projects._03_factor_selection.factor_manager.factor_composite.factor_synthesizer import (
     FactorSynthesizer,
+)
+from projects._03_factor_selection.factor_manager.factor_analyzer.factor_analyzer import (
+    FactorAnalyzer,
 )
 from projects._03_factor_selection.factor_manager.factor_manager import (
     FactorManager,
     FactorResultsManager,
 )
+from projects._03_factor_selection.utils.factor_processor import FactorProcessor
 
 
 def build_results() -> dict:
@@ -177,6 +184,56 @@ def test_inner_direction_store_rejects_missing_and_duplicate_values():
         manager.get_inner_resolved_direction("missing")
 
 
+def test_inner_direction_uses_non_overlapping_sample_weights(tmp_path):
+    output_path = tmp_path / "directions.yaml"
+    output_path.write_text("factors: {}\n", encoding="utf-8")
+    stats = {
+        "5d": {"ic_mean": 0.1, "ic_Valid Days": 8},
+        "10d": {"ic_mean": -0.1, "ic_Valid Days": 4},
+        "20d": {"ic_mean": -0.1, "ic_Valid Days": 2},
+        "40d": {"ic_mean": -0.1, "ic_Valid Days": 1},
+    }
+
+    direction = resolve_and_store_inner_direction(
+        factor_name="factor",
+        configured_periods=[5, 10, 20, 40],
+        ic_stats_periods_dict_processed=stats,
+        inner_run_id="run",
+        output_path=output_path,
+    )
+
+    saved = yaml.safe_load(output_path.read_text(encoding="utf-8"))["factors"]["factor"]
+    assert direction == 1
+    assert saved["direction_score"] == pytest.approx(0.1 / 15)
+    assert saved["ic_valid_days_by_period"] == {"5d": 8, "10d": 4, "20d": 2, "40d": 1}
+    assert saved["direction_weight_by_period"] == pytest.approx(
+        {"5d": 8 / 15, "10d": 4 / 15, "20d": 2 / 15, "40d": 1 / 15}
+    )
+
+
+def test_inner_direction_rejects_missing_or_invalid_non_overlapping_sample_count(tmp_path):
+    output_path = tmp_path / "directions.yaml"
+    output_path.write_text("factors: {}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="5d 缺少 ic_Valid Days"):
+        resolve_and_store_inner_direction(
+            factor_name="factor",
+            configured_periods=[5],
+            ic_stats_periods_dict_processed={"5d": {"ic_mean": 0.1}},
+            inner_run_id="run",
+            output_path=output_path,
+        )
+
+    with pytest.raises(ValueError, match="5d 的 ic_Valid Days=0"):
+        resolve_and_store_inner_direction(
+            factor_name="factor",
+            configured_periods=[5],
+            ic_stats_periods_dict_processed={"5d": {"ic_mean": 0.1, "ic_Valid Days": 0}},
+            inner_run_id="run",
+            output_path=output_path,
+        )
+
+
 def test_only_composites_declare_component_fields():
     config_path = Path(__file__).parents[1] / "projects" / "_03_factor_selection" / "configs" / "factors" / "factors.yaml"
     definitions = yaml.safe_load(config_path.read_text(encoding="utf-8"))["factor_definition"]
@@ -187,3 +244,136 @@ def test_only_composites_declare_component_fields():
             assert definition["cal_require_base_fields"]
         else:
             assert "cal_require_base_fields" not in definition
+
+
+def test_standardization_without_industry_config_uses_full_cross_section():
+    processor = FactorProcessor({"preprocessing": {"standardization": {"method": "zscore"}}})
+    factor = pd.DataFrame([[0.0, 2.0, 100.0, 104.0]], columns=list("abcd"))
+
+    actual = processor._standardize_robust(factor)
+    expected = factor.sub(factor.mean(axis=1), axis=0).div(factor.std(axis=1), axis=0)
+
+    pd.testing.assert_frame_equal(actual, expected, check_exact=True)
+    assert actual.loc[0, ["a", "b"]].mean() != pytest.approx(0.0)
+
+
+def test_zero_variance_standardization_preserves_missing_values():
+    processor = FactorProcessor({"preprocessing": {"standardization": {"method": "zscore"}}})
+    factor = pd.DataFrame([[3.0, np.nan]], columns=["a", "b"])
+
+    actual = processor._standardize_robust(factor)
+
+    assert actual.loc[0, "a"] == 0.0
+    assert pd.isna(actual.loc[0, "b"])
+
+
+def test_neutralization_factors_are_a_strict_yaml_contract():
+    processor = FactorProcessor(
+        {"preprocessing": {"neutralization": {"factors": ["market_cap", "industry"]}}}
+    )
+
+    assert processor.get_regression_need_neutral_factor_list("value_signal") == [
+        "market_cap",
+        "industry",
+    ]
+
+    missing = FactorProcessor({"preprocessing": {"neutralization": {}}})
+    with pytest.raises(ValueError, match="必须是非空列表"):
+        missing.get_configured_neutralization_factors()
+
+    invalid = FactorProcessor(
+        {"preprocessing": {"neutralization": {"factors": ["unknown"]}}}
+    )
+    with pytest.raises(ValueError, match="不支持的变量"):
+        invalid.get_configured_neutralization_factors()
+
+
+def test_industry_mad_skips_the_first_date_without_a_prior_industry_map():
+    processor = FactorProcessor(
+        {
+            "preprocessing": {
+                "winsorization": {
+                    "method": "mad",
+                    "by_industry": {
+                        "primary_level": "l2_code",
+                        "fallback_level": "l1_code",
+                        "min_samples": 2,
+                    },
+                }
+            }
+        }
+    )
+    factor = pd.DataFrame([[1.0, 2.0]], columns=["a", "b"])
+
+    actual = processor.winsorize_robust(factor, pit_industry_map=object())
+
+    assert actual.loc[0].isna().all()
+
+
+class _MarketCapOnlyDataManager:
+    config = {
+        "preprocessing": {
+            "neutralization": {"enable": True, "factors": ["market_cap"]}
+        }
+    }
+
+    @property
+    def pit_map(self):
+        raise AssertionError("未配置 industry 时不应读取行业映射")
+
+    def get_stock_pool_index_code_by_name(self, _):
+        raise AssertionError("未配置 pct_chg_beta 时不应读取基准指数")
+
+
+class _MarketCapOnlyFactorManager:
+    data_manager = _MarketCapOnlyDataManager()
+
+    @staticmethod
+    def get_style_category(_):
+        return "value"
+
+    @staticmethod
+    def get_prepare_aligned_factor_for_analysis(factor_name, _, __):
+        assert factor_name == "log_circ_mv"
+        return pd.DataFrame([[1.0]], columns=["000001.SZ"])
+
+
+def test_neutralization_yaml_limits_prepared_regressors():
+    analyzer = FactorAnalyzer.__new__(FactorAnalyzer)
+    analyzer.factor_manager = _MarketCapOnlyFactorManager()
+    analyzer.factor_processor = FactorProcessor(analyzer.factor_manager.data_manager.config)
+
+    neutral_dfs, style_category = analyzer.prepare_data_for_process_factor(
+        "value_signal",
+        pd.DatetimeIndex([pd.Timestamp("2024-01-02")]),
+        ["000001.SZ"],
+        "ZZ800",
+    )
+
+    assert style_category == "value"
+    assert list(neutral_dfs) == ["log_circ_mv"]
+
+
+class _AlignmentDataManager:
+    def __init__(self, definitions):
+        self.config = {"factor_definition": definitions}
+
+
+@pytest.mark.parametrize(
+    "factor_name",
+    ["three_low_one_high_value", "three_low_one_high_improve"],
+)
+def test_three_low_one_high_daily_components_shift_before_o2o_label(factor_name):
+    config_path = Path(__file__).parents[1] / "projects" / "_03_factor_selection" / "configs" / "factors" / "factors.yaml"
+    definitions = yaml.safe_load(config_path.read_text(encoding="utf-8"))["factor_definition"]
+    raw_factor = pd.DataFrame(
+        {"000001.SZ": [1.0, 2.0, 3.0]},
+        index=pd.date_range("2024-01-02", periods=3),
+    )
+    manager = FactorManager.__new__(FactorManager)
+    manager.data_manager = _AlignmentDataManager(definitions)
+    manager.get_factor_by_rule = lambda _: raw_factor
+
+    actual = manager.get_raw_factor_for_analysis(factor_name)
+
+    pd.testing.assert_frame_equal(actual, raw_factor.shift(1), check_exact=True)
