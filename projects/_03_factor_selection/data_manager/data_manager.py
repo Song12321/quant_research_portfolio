@@ -896,17 +896,6 @@ class DataManager:
         coverage = valid_cells / total_cells if total_cells > 0 else 0
         logger.info(f"  {describe_text}: 后形状 {pool_df.shape}, 为true状态股票覆盖度 {coverage:.1%}")
 
-    # 输入学术因子，返回计算所必须的base 因子
-    def get_base_require_factors(self, target_factors_name: list[str]) -> set:
-        result = set()
-        for name in target_factors_name:
-            factor_config = self.get_factor_definition(name)
-            if factor_config['cal_require_base_fields_from_daily'].iloc[0]:
-                base_fields = factor_config['cal_require_base_fields'].iloc[0]
-                if base_fields is not None and base_fields is not np.nan:
-                    result.update(base_fields)  # 用 update 合并列表到 set
-        return result
-
     def get_cal_require_base_fields_for_composite(self, name):
         factor_config = self.get_factor_definition(name)
         if factor_config.empty:
@@ -1014,14 +1003,6 @@ class DataManager:
     def get_target_factors_for_evaluation(self):
         namelists = list(self.experiments_config.keys())
         return namelists
-
-    def get_target_evaluation_factor_base_require_factors_name(self):
-        ret = []
-        target_factors_for_evaluation = self.get_target_factors_for_evaluation()
-        for target_factor_name in target_factors_for_evaluation:
-            factors = self.get_base_require_factors(['fields'])
-            ret.extend(factors)
-        return ret
 
     def get_experiments_factor_names(self):
         return list(pd.DataFrame(self.get_experiments_df())['factor_name'].unique())

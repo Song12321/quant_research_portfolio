@@ -1,8 +1,10 @@
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
 
 from projects._03_factor_selection.factory.enhanced_test_runner import EnhancedTestRunner
 from projects._03_factor_selection.factor_manager.factor_composite.factor_synthesizer import (
@@ -173,3 +175,15 @@ def test_inner_direction_store_rejects_missing_and_duplicate_values():
         manager.store_inner_resolved_direction("child", 1)
     with pytest.raises(ValueError, match="缺少本次 Inner 子因子方向.*missing"):
         manager.get_inner_resolved_direction("missing")
+
+
+def test_only_composites_declare_component_fields():
+    config_path = Path(__file__).parents[1] / "projects" / "_03_factor_selection" / "configs" / "factors" / "factors.yaml"
+    definitions = yaml.safe_load(config_path.read_text(encoding="utf-8"))["factor_definition"]
+
+    for definition in definitions:
+        assert "cal_require_base_fields_from_daily" not in definition
+        if definition["action"] == "composite":
+            assert definition["cal_require_base_fields"]
+        else:
+            assert "cal_require_base_fields" not in definition

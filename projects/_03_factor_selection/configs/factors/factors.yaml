@@ -85,16 +85,12 @@ factor_definition:
     description: '流通市值的对数。必须取对数以缓解数据右偏，是进行回归和中性化时最标准的规模因子。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'circ_mv' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'log_total_mv'
     style_category: 'size'
     description: '总市值的对数。必须取对数以缓解数据右偏，是进行回归和中性化时最标准的规模因子。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'total_mv' ]
-    cal_require_base_fields_from_daily: False
 
 
   # === 价值 (Value) ===
@@ -103,8 +99,6 @@ factor_definition:
     description: '每日收益率（后复权）。'
     action: technical_calcu
     time_alignment: 'shift' # 基于日度价格，应为 shift
-    cal_require_base_fields: [ 'close_adj' ]
-    cal_require_base_fields_from_daily: False
   # === market_microstructure 市场微观结构类===
   - name: 'vwap_deviation_20d'
     style_category: 'market_microstructure'
@@ -112,8 +106,6 @@ factor_definition:
         并对该偏离度取20日平均，以获得更平滑的信号'
     action: technical_calcu
     time_alignment: 'shift' # 基于日度价格，应为 shift
-    cal_require_base_fields: [ 'vwap_hfq' ,'close_hfq']
-    cal_require_base_fields_from_daily: False
 
 
   # --- 以下价值因子均源于财报，应为 pre_aligned ---
@@ -122,80 +114,48 @@ factor_definition:
     description: '账面市值比(Book-to-Market)，即市净率(PB)倒数。Fama-French三因子模型的核心成员。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'  # <--【修正】
-    cal_require_base_fields: [ 'pb' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'ep_ratio'
     style_category: 'value'
     description: '盈利收益率(Earnings Yield)，即市盈率(PE_TTM)倒数，比PE更能直接比较。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'  # <--【修正】
-    cal_require_base_fields: [ 'pe_ttm' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'sp_ratio'
     style_category: 'value'
     description: '销售收益率(Sales Yield)，即市销率(PS_TTM)倒数，对亏损的成长股有很好的评估价值。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'  # <--【修正】
-    cal_require_base_fields: [ 'ps_ttm' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'cfp_ratio'
     style_category: 'value'
     description: '现金流市值比(TTM)，衡量公司的"造血"能力相对于其市值的水平，盈利质量的试金石。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'  # <--【修正】
-    cal_require_base_fields: [ 'cashflow_ttm', 'total_mv' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'three_low_one_high_value'
     style_category: 'value'
     description: '三低一高-低估值：短期价值组合 + 长期估值分位。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'
-    cal_require_base_fields: [
-      'total_mv',
-      'net_profit_ttm',
-      'total_equity',
-      'cashflow_ttm',
-      'dv_ttm',
-      'ebit_ttm',
-      'total_debt'
-    ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'three_low_one_high_lowprice'
     style_category: 'value'
     description: '三低一高-低股价：长周期价格分位 + 当期价格水平。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'close_hfq' ]
-    cal_require_base_fields_from_daily: True
 
   - name: 'three_low_one_high_lowattn'
     style_category: 'value'
     description: '三低一高-低关注代理：低换手率与低20日平均成交额。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'turnover_rate', 'amount' ]
-    cal_require_base_fields_from_daily: True
 
   - name: 'three_low_one_high_improve'
     style_category: 'quality'
     description: '三低一高-高改善：盈利改善与现金质量/应计。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'
-    cal_require_base_fields: [
-      'total_mv',
-      'net_profit_ttm',
-      'cashflow_ttm',
-      'total_assets',
-      'roe_ttm',
-      'opmargin_ttm',
-      'free_cashflow_ttm'
-    ]
-    cal_require_base_fields_from_daily: False
 
 
 
@@ -207,8 +167,6 @@ factor_definition:
     description: ''
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'
-    cal_require_base_fields: [ 'debt' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'roa_ttm'
     style_category: 'quality'
@@ -217,8 +175,6 @@ factor_definition:
         这是一个结合了质量与动量思想的因子。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'
-    cal_require_base_fields: [ 'q_roe' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'roe_change_q'
     style_category: 'quality'
@@ -227,32 +183,24 @@ factor_definition:
         这是一个结合了质量与动量思想的因子。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'
-    cal_require_base_fields: [ 'q_roe']
-    cal_require_base_fields_from_daily: False
 
   - name: 'roe_ttm'
     style_category: 'quality'
     description: '净资产收益率(Return on Equity)，衡量公司为股东创造利润的能力，巴菲特最看重的指标之一。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'  # <--【修正】
-    cal_require_base_fields: [ 'net_profit_ttm', 'total_equity' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'gross_margin_ttm'
     style_category: 'quality'
     description: '销售毛利率(TTM)，反映了公司产品或服务的“护城河”和议价能力。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'  # <--【修正】
-    cal_require_base_fields: [ 'total_revenue_ttm', 'op_cost_ttm' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'debt_to_assets'
     style_category: 'quality'
     description: '资产负债率，衡量公司的财务杠杆和偿债风险，是稳健性的重要体现。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'  # <--【修正】
-    cal_require_base_fields: [ 'total_debt', 'total_assets' ]
-    cal_require_base_fields_from_daily: False
 
 
   # === 成长 (Growth) - 全部源于财报，应为 pre_aligned ===
@@ -261,32 +209,24 @@ factor_definition:
     description: '滚动12个月的归母净利润同比增长率。相比单季度YoY增长率，TTM增长率更平滑，能有效滤除季节性波动和单季度的短期“异动”，更好地反映公司的稳定增长趋势。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'  # <--【修正】
-    cal_require_base_fields: [ 'net_profit_ttm' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'revenue_growth_ttm'
     style_category: 'growth'
     description: '滚动12个月的营业总收入同比增长率。衡量公司主营业务规模的扩张速度，相比净利润增长，更难被非经营性损益操纵。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'  # <--【修正】
-    cal_require_base_fields: [ 'total_revenue_ttm' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'net_profit_growth_yoy'
     style_category: 'growth'
     description: '净利润同比增长率(YoY)，最直接的成长性指标。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'  # <--【修正】
-    cal_require_base_fields: [ 'net_profit_single_q' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'total_revenue_growth_yoy'
     style_category: 'growth'
     description: '营业收入同比增长率(YoY)，衡量公司市场扩张和占有率的能力。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'  # <--【修正】
-    cal_require_base_fields: [ 'total_revenue_single_q' ]
-    cal_require_base_fields_from_daily: False
 
 
   # === 动量与反转 (Momentum & Reversal) - 基于日度行情，应为 shift ===
@@ -296,8 +236,6 @@ factor_definition:
     description: ''
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'pct_chg' ]
-    cal_require_base_fields_from_daily: False
 
 
 
@@ -306,8 +244,6 @@ factor_definition:
     description: ''
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'pct_chg' ]
-    cal_require_base_fields_from_daily: False
 
 
   - name: 'momentum_5d'
@@ -315,8 +251,6 @@ factor_definition:
     description: ''
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'pct_chg' ]
-    cal_require_base_fields_from_daily: False
 
 
   - name: 'sharpe_momentum_60d'
@@ -326,8 +260,6 @@ factor_definition:
         高收益的股票，信号质量通常更高'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'pct_chg' ]
-    cal_require_base_fields_from_daily: False
 
 
   - name: 'momentum_12_1'
@@ -335,38 +267,28 @@ factor_definition:
     description: '过去12个月剔除最近1个月的累计收益率，最经典的截面动量因子，捕捉中期价格惯性。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'close_adj' ]
-    cal_require_base_fields_from_daily: False
   - name: 'momentum_12_2'
     style_category: 'momentum'
     description: '过去12个月剔除最近2个月的累计收益率，最经典的截面动量因子，捕捉中期价格惯性。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'close_adj' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'momentum_20d'
     style_category: 'momentum'
     description: '20日动量/收益率，捕捉短期趋势，常用于高频一些的策略。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'close_adj' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'momentum_pct_60d'
     style_category: 'momentum'
     description: '捕捉中期价格惯性。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'close_adj' ]
-    cal_require_base_fields_from_daily: False
   - name: 'momentum_120d'
     style_category: 'momentum'
     description: '120日（约半年）累计收益率，捕捉中期价格惯性。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'close_adj' ]
-    cal_require_base_fields_from_daily: False
 
 
   - name: 'reversal_21d'
@@ -375,16 +297,12 @@ factor_definition:
     description: '21日（约1个月）收益率的负向。A股短期反转效应显著，即前期涨多的股票后期倾向于跌。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'close_adj' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'reversal_5d'
     style_category: 'momentum' # 类别上仍属动量大类
     description: '周 收益率的负向。A股短期反转效应显著，即前期涨多的股票后期倾向于跌。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'close_adj' ]
-    cal_require_base_fields_from_daily: False
 
   # === 风险 (Risk / Volatility) - 基于日度行情，应为 shift ===
   - name: 'beta'
@@ -392,31 +310,23 @@ factor_definition:
     description: '贝塔系数，衡量个股相对于市场基准的系统性风险。（你到底是跟着别人屁股后面转，还是凭自己的真本事 （用到协同'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'pct_chg', 'benchmark_pct_chg' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'volatility_120d'
     style_category: 'risk'
     description: '120日年化波动率，衡量个股自身的价格波动风险。低波动股票有时反而有超额收益。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'pct_chg' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'volatility_90d'
     style_category: 'risk'
     description: '90日年化波动率，衡量个股自身的价格波动风险（特质风险）。低波动股票有时反而有超额收益。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'pct_chg' ]
-    cal_require_base_fields_from_daily: False
   - name: 'volatility_40d'
     style_category: 'risk'
     description: '40日年化波动率，衡量个股自身的价格波动风险（特质风险）。低波动股票有时反而有超额收益。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'pct_chg' ]
-    cal_require_base_fields_from_daily: False
 
   # === 流动性 (Liquidity) - 基于日度行情，应为 shift ===
 
@@ -425,55 +335,41 @@ factor_definition:
     description: ''
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'turnover_rate' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'turnover_rate_monthly_mean'
     style_category: 'liquidity'
     description: '月平均换手率，衡量股票在一段时间内的交易活跃度。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'turnover_rate' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'turnover_rate_90d_mean'
     style_category: 'liquidity'
     description: '90日（约一季度）平均换手率，比单日或月度指标更能平滑地衡量股票的交易活跃度。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'turnover_rate' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'ln_turnover_value_90d'
     style_category: 'liquidity'
     description: '90日日均成交额的对数。反映了资产的绝对流动性水平，是冲击成本的重要代理变量。建议取对数。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'amount' ]
-    cal_require_base_fields_from_daily: False
   - name: 'turnover_t1_div_t20d_avg'
     style_category: 'liquidity'
     description: '成交额突然放大，往往伴随趋势/事件驱动。。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'amount' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'amihud_liquidity'
     style_category: 'liquidity'
     description: 'Amihud非流动性指标，衡量单位成交额能引起多大的价格波动，是冲击成本的优秀代理变量。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'pct_chg', 'amount' ]
-    cal_require_base_fields_from_daily: False
   # === 行业~~~  ===
   - name: 'sw_l1_momentum_21d'
     style_category: 'sw_industry'
     description: ' 板块轮动效应。买入近期表现强势的行业中的股票。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'sw_close' ]
-    cal_require_base_fields_from_daily: False
 
   # === 质量类深化 (Advanced Quality) - 源于财报，应为 pre_aligned ===
   - name: 'operating_accruals'
@@ -481,16 +377,12 @@ factor_definition:
     description: '经营性应计利润。(净利润TTM - 经营现金流TTM) / 总资产。衡量利润中的“纸面富贵”成分，值越高代表利润质量越差，是一个反向指标。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'  # <--【修正】
-    cal_require_base_fields: [ 'net_profit_ttm', 'cashflow_ttm', 'total_assets' ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'earnings_stability'
     style_category: 'quality'
     description: '盈利稳定性。计算过去5年(20个季度)单季归母净利润的标准差的倒数。标准差越小，盈利越稳定，因子值越高。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned'  # <--【修正】
-    cal_require_base_fields: [ 'n_income_attr_p' ]
-    cal_require_base_fields_from_daily: False
 
 
   # === 成长类升级与事件驱动 (Advanced Growth & Event) - 已正确配置 ===
@@ -499,8 +391,6 @@ factor_definition:
     description: '盈余公告后漂移(Post-Earnings Announcement Drift)。SUE因子的有效代理，计算财报公告日后N个交易日的累计收益率，捕捉市场对盈利"惊喜"的持续反应。'
     action: 'technical_calcu'
     time_alignment: 'pre_aligned' # 正确
-    cal_require_base_fields: [ 'pct_chg', 'ann_date' ]
-    cal_require_base_fields_from_daily: False
 
 
   # === 情绪类因子 (Sentiment) - 基于日度行情，应为 shift ===
@@ -509,16 +399,12 @@ factor_definition:
     description: '相对强弱指数(Relative Strength Index)。衡量股价在一段时间内的超买超卖状态，是经典的技术分析反转指标。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'close_adj' ] # 依赖价格
-    cal_require_base_fields_from_daily: False
 
   - name: 'cci'
     style_category: 'sentiment'
     description: '顺势指标(Commodity Channel Index)。衡量股价是否偏离其均价的统计范围，常用于判断趋势的开启、持续或反转。'
     action: 'technical_calcu'
     time_alignment: 'shift'
-    cal_require_base_fields: [ 'high', 'low', 'close_adj' ] # 依赖价格
-    cal_require_base_fields_from_daily: False
 
   # 资金流向类 money_flow
   - name: 'large_trade_ratio_10d'
@@ -526,16 +412,12 @@ factor_definition:
     description: ' 大单或特大单净流入占比，反映了机构或主力资金的动向。持续的大单净流入可能预示着股价的上涨。'
     action: 'technical_calcu'
     time_alignment: 'shift' # 其成分因子均为shift类型，故也为shift
-    cal_require_base_fields: [ 'sell_elg_amount', 'sell_lg_amount' ,'buy_elg_amount','buy_lg_amount']
-    cal_require_base_fields_from_daily: False # 依赖于其他衍生因子
 #量价因子
   - name: 'single_day_vpt'
     style_category: 'volume_price'
     description: ''
     action: 'technical_calcu'
     time_alignment: 'shift' # 其成分因子均为shift类型，故也为shift
-    cal_require_base_fields: [ 'vol_hfq']
-    cal_require_base_fields_from_daily: False # 依赖于其他衍生因子
 #量价因子
 
   # === 复合类因子 (Composite) ===
@@ -550,22 +432,18 @@ factor_definition:
       'three_low_one_high_lowattn',
       'three_low_one_high_improve'
     ]
-    cal_require_base_fields_from_daily: False
 
   - name: 'quality_momentum'
     style_category: 'momentum'
     description: '高质量动量。风险调整后的动量因子(120日动量 / 90日波动率)，作为“分析师评级上调”的代理，旨在寻找稳步上涨的股票。'
     action: 'technical_calcu'
     time_alignment: 'shift' # 其成分因子均为shift类型，故也为shift
-    cal_require_base_fields: [ 'momentum_120d', 'volatility_90d' ]
-    cal_require_base_fields_from_daily: False # 依赖于其他衍生因子
   - name: 'value_composite'
     style_category: 'value'
     description: 'bm_ratio、sp_ratio、ep_ratio 预处理后的等权价值合成因子。'
     action: 'composite'
     time_alignment: 'pre_aligned'   # 代码 不会走get_factor_for_analusis. 所以不用用到这个字段！
     cal_require_base_fields: [ 'bm_ratio', 'sp_ratio', 'ep_ratio' ]
-    cal_require_base_fields_from_daily: False
 
 
 

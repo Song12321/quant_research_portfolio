@@ -25,7 +25,7 @@ from quant_lib.config.logger_config import log_success, setup_logger
 
 
 logger = setup_logger(__name__)
-DEFAULT_INNER_CONFIG = Path(__file__).parents[1] / "configs" / "research" / "inner.yaml"
+DEFAULT_INNER_CONFIG = Path(__file__).parents[1] / "configs" / "research" / "inner.yaml" #todo不一定是inner
 
 
 class EnhancedTestRunner:
