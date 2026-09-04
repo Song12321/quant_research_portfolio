@@ -12,6 +12,7 @@ from projects._03_factor_selection.config_manager.factor_definition_loader impor
 from projects._03_factor_selection.config_manager.inner_direction_store import (
     resolve_and_store_inner_direction,
 )
+from projects._03_factor_selection.data_manager.data_manager import DataManager
 from projects._03_factor_selection.factory.enhanced_test_runner import EnhancedTestRunner
 from projects._03_factor_selection.factor_manager.factor_composite.factor_synthesizer import (
     FactorSynthesizer,
@@ -34,6 +35,51 @@ FACTOR_DEFINITION_DIR = (
     / "factors"
     / "definitions"
 )
+INNER_CONFIG_PATH = (
+    Path(__file__).parents[1]
+    / "projects"
+    / "_03_factor_selection"
+    / "configs"
+    / "research"
+    / "inner.yaml"
+)
+
+
+def _data_manager_with_pool(pool_name: str, index_filter: dict) -> DataManager:
+    manager = DataManager.__new__(DataManager)
+    manager.config = {
+        "stock_pool_profiles": {
+            pool_name: {
+                "index_filter": index_filter,
+                "filters": {},
+            }
+        }
+    }
+    return manager
+
+
+def test_all_market_config_does_not_require_index_code():
+    config = yaml.safe_load(INNER_CONFIG_PATH.read_text(encoding="utf-8"))
+
+    assert config["stock_pool_name"] == "ALL"
+    assert config["stock_pool_profiles"]["ALL"]["index_filter"] == {"enable": False}
+
+
+def test_disabled_index_filter_uses_pool_name_for_storage():
+    manager = _data_manager_with_pool("ALL", {"enable": False})
+
+    assert manager.get_stock_pool_storage_name_by_name("ALL") == "ALL"
+    with pytest.raises(ValueError, match="未配置非空 index_code"):
+        manager.get_stock_pool_index_code_by_name("ALL")
+
+
+def test_enabled_index_filter_uses_index_code_for_storage():
+    manager = _data_manager_with_pool(
+        "ZZ800", {"enable": True, "index_code": "000906"}
+    )
+
+    assert manager.get_stock_pool_storage_name_by_name("ZZ800") == "000906"
+    assert manager.get_stock_pool_index_code_by_name("ZZ800") == "000906"
 
 
 def build_results() -> dict:

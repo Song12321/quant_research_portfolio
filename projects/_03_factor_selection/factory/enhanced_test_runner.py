@@ -139,8 +139,8 @@ class EnhancedTestRunner:
 
     def _save_prices(self, pool_names: List[str]) -> None:
         for pool_name in pool_names:
-            pool_code = self.data_manager.get_stock_pool_index_code_by_name(pool_name)
-            output_dir = self.run_dir / "artifacts" / "prices" / pool_code
+            storage_name = self.data_manager.get_stock_pool_storage_name_by_name(pool_name)
+            output_dir = self.run_dir / "artifacts" / "prices" / storage_name
             output_dir.mkdir(parents=True, exist_ok=False)
             for price_type in ("close_hfq", "open_hfq", "high_hfq", "low_hfq"):
                 price = self.factor_manager.get_prepare_aligned_factor_for_analysis(

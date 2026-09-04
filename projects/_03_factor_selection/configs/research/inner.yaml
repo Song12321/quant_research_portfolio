@@ -4,7 +4,7 @@ output_root: '../../workspace'
 factor_definition_dir: '../factors/definitions'
 direction_output_file: '../factors/inner_resolved_directions.yaml'
 
-stock_pool_name: 'ZZ800'
+stock_pool_name: 'ALL'
 
 experiments:
   - factor_name: 'three_low_one_high_value'
@@ -18,10 +18,9 @@ research_window:
   end_date: '2025-07-10'
 
 stock_pool_profiles:
-  ZZ800:
+  ALL:
     index_filter:
-      enable: true
-      index_code: '000906'
+      enable: false
     filters:
       remove_st: true
       history_days: 252

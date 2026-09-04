@@ -188,7 +188,13 @@ class DataManager:
         if 'preheat_trading_days' not in definition.index:
             raise ValueError(f"基础因子缺少 preheat_trading_days: factor={factor_name}")
         preheat_days = definition['preheat_trading_days']
-        if isinstance(preheat_days, bool) or not isinstance(preheat_days, (int, np.integer)) or preheat_days <= 0:
+        if (
+            isinstance(preheat_days, bool)
+            or not isinstance(preheat_days, (int, float, np.integer, np.floating))
+            or not np.isfinite(preheat_days)
+            or preheat_days <= 0
+            or not float(preheat_days).is_integer()
+        ):
             raise ValueError(
                 f"基础因子 preheat_trading_days 必须为正整数: "
                 f"factor={factor_name}, actual={preheat_days!r}"
@@ -966,8 +972,22 @@ class DataManager:
     def get_pool_profile_by_pool_name(self, pool_name):
         return self.get_pool_profiles()[pool_name]
 
+    def get_stock_pool_storage_name_by_name(self, name):
+        """结果存储使用指数代码；未启用指数过滤时使用股票池名称。"""
+        profile = self.get_pool_profile_by_pool_name(name)
+        index_filter = profile['index_filter']
+        if not index_filter.get('enable', False):
+            return name
+        return self.get_stock_pool_index_code_by_name(name)
+
     def get_stock_pool_index_code_by_name(self, name):
-        return self.get_pool_profile_by_pool_name(name)['index_filter']['index_code']
+        index_filter = self.get_pool_profile_by_pool_name(name)['index_filter']
+        index_code = index_filter.get('index_code')
+        if not isinstance(index_code, str) or not index_code:
+            raise ValueError(
+                f"股票池 {name!r} 未配置非空 index_code，无法执行指数过滤或 Beta 计算。"
+            )
+        return index_code
 
     def get_factor_definition(self, factor_name):
         all_df = self.get_factor_definition_df()

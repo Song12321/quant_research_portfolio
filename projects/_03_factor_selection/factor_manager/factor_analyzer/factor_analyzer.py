@@ -278,7 +278,7 @@ class FactorAnalyzer:
             is_composite,
             data_manager.config["research_window"]["start_date"],
             data_manager.config["research_window"]["end_date"],
-            data_manager.get_stock_pool_index_code_by_name(stock_pool_name),
+            data_manager.get_stock_pool_storage_name_by_name(stock_pool_name),
             {name: calculators[name] for name in configured_calculators},
         )
 
@@ -286,7 +286,7 @@ class FactorAnalyzer:
         self, factor_name: str, stock_pool_index_name: str
     ) -> Dict[str, dict]:
         """正式入口：只评价并保存 processed 信号。"""
-        factor_data, is_composite, start_date, end_date, pool_code, calculators = (
+        factor_data, is_composite, start_date, end_date, storage_name, calculators = (
             self.prepare_data_for_entity_service(factor_name, stock_pool_index_name)
         )
         all_results = {}
@@ -300,7 +300,7 @@ class FactorAnalyzer:
             )
             self.factor_results_manager._save_factor_results(
                 factor_name=factor_name,
-                stock_index=pool_code,
+                stock_index=storage_name,
                 start_date=start_date,
                 end_date=end_date,
                 returns_calculator_func_name=calculator_name,

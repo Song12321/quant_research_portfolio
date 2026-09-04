@@ -2,7 +2,6 @@ from typing import Callable, Dict, List  # 引入Callable来指定函数类型�
 
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
 
 from data.local_data_load import load_index_daily, load_cashflow_df, load_income_df, \
     load_balancesheet_df, load_fina_indicator_df
@@ -1136,6 +1135,9 @@ class FactorCalculator:
         logger.info(f"    > 正在计算因子: RSI (window={window})...")
         close_df = self.factor_manager.get_raw_factor(('close_hfq_filled', 10))
 
+        # 仅在请求 RSI 时加载第三方库，其他因子不依赖该可选指标库。
+        import pandas_ta as ta
+
         # 使用 pandas_ta 库，通过 .apply 在每一列（每只股票）上独立计算
         rsi_df = close_df.apply(lambda x: ta.rsi(x, length=window), axis=0)
 
@@ -1147,6 +1149,8 @@ class FactorCalculator:
         衡量股价是否超出其正常波动范围，可用于捕捉趋势的开启或反转。
         """
         logger.info(f"    > 正在计算因子: CCI (window={window})...")
+        import pandas_ta as ta
+
         high_df = self.factor_manager.get_raw_factor(('high_hfq_filled',10))
         low_df = self.factor_manager.get_raw_factor(('low_hfq_filled',10))
         close_df = self.factor_manager.get_raw_factor(('close_hfq_filled',10))

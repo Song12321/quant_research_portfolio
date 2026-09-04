@@ -5,7 +5,6 @@ from typing import Dict, List, Optional, Tuple, Any
 
 import pandas as pd
 import yaml
-from sm.sm import config_db_path
 
 from projects._03_factor_selection.config_manager.base_config import config_yaml_path
 from projects._03_factor_selection.config_manager.function_load.local_config_file_definition import \
