@@ -5,7 +5,6 @@
 支持从本地文件、数据库和API加载数据。
 """
 
-import os
 import pandas as pd
 import numpy as np
 import pyarrow.parquet as pq
@@ -13,10 +12,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union, Tuple
 from collections import defaultdict
 
-from odbc import noError
-
 from quant_lib import setup_logger
-from quant_lib.config.constant_config import LOCAL_PARQUET_DATA_DIR
+from quant_lib.config.constant_config import MARKET_DATA_ROOT, get_market_data_path
 
 # 获取模块级别的logger
 logger = setup_logger(__name__)
@@ -30,25 +27,27 @@ class DataLoader:
     支持本地Parquet文件、数据库和API数据源。
     
     Attributes:
-        data_path (Path): 数据存储路径
+        data_root (Path): 市场数据根目录
         cache (Dict): 数据缓存
         field_map (Dict): 字段到数据源的映射
     """
 
     # ok
-    def __init__(self, data_path: Optional[Path] = None, use_cache: bool = True):
+    def __init__(self, data_root: Optional[Path] = None, use_cache: bool = True):
         """
         初始化数据加载器
         
         Args:
-            data_path: 数据存储路径，如果为None则使用默认路径
+            data_root: 市场数据根目录，如果为None则使用默认路径
             use_cache: 是否使用内存缓存
         """
-        self.data_path = data_path or LOCAL_PARQUET_DATA_DIR
+        self.data_root = MARKET_DATA_ROOT if data_root is None else Path(data_root)
+        if not self.data_root.is_dir():
+            raise FileNotFoundError(f"市场数据根目录不存在: {self.data_root}")
 
-        if not self.data_path.exists():
-            os.makedirs(self.data_path, exist_ok=True)
-            logger.info(f"数据路径不存在,现已创建数据路径: {self.data_path}")
+        self.stock_data_root = self.data_root / 'stock'
+        if not self.stock_data_root.is_dir():
+            raise FileNotFoundError(f"股票数据目录不存在: {self.stock_data_root}")
 
         self.available_columns_by_file = defaultdict(set)
         self.field_map = self._build_field_map_to_file_name()
@@ -59,7 +58,7 @@ class DataLoader:
     def check_local_date_period_completeness(self, file_to_fields, start_date, end_date):
         for logical_name, columns_to_need_load in file_to_fields.items():
             logger.info(f"开始检查{logical_name} 时间段完整")
-            file_path = self.data_path / logical_name
+            file_path = get_market_data_path(logical_name, self.data_root)
 
             df = pd.read_parquet(file_path)
             if logical_name in ['index_daily.parquet', 'daily_basic', 'daily_basic', 'index_weights',
@@ -77,7 +76,7 @@ class DataLoader:
     def _load_trade_cal(self) -> pd.DataFrame:
         """加载交易日历"""
         try:
-            trade_cal_df = pd.read_parquet(self.data_path / 'trade_cal.parquet')
+            trade_cal_df = pd.read_parquet(get_market_data_path('trade_cal.parquet', self.data_root))
             trade_cal_df['cal_date'] = pd.to_datetime(trade_cal_df['cal_date'])
             trade_cal_df=trade_cal_df.sort_values('cal_date', inplace=False)
             return trade_cal_df
@@ -102,8 +101,8 @@ class DataLoader:
         """
         field_to_files_map = {}
 
-        # 递归查找所有parquet文件
-        for file_path in self.data_path.rglob('*.parquet'):
+        # 股票因子只登记股票目录，避免指数同名字段污染股票字段映射。
+        for file_path in self.stock_data_root.rglob('*.parquet'):
             try:
                 # 只读取schema以获取列名
                 columns = pq.read_schema(file_path).names
@@ -188,7 +187,7 @@ class DataLoader:
         raw_long_dfs = {}  # 原生的 从本地拿到的 key :文件，value：df（所有列！）
         for logical_name, columns_to_need_load in file_to_fields.items():
             try:
-                file_path = self.data_path / logical_name
+                file_path = get_market_data_path(logical_name, self.data_root)
 
                 # 检查文件中实际存在的字段
                 columns_to_need_load = self.fix_names_for_origin(columns_to_need_load, logical_name)

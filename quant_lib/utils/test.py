@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pandas as pd
 import statsmodels.api as sm
-from quant_lib.config.constant_config import LOCAL_PARQUET_DATA_DIR
+from quant_lib.config.constant_config import get_market_data_path
 
 
 def read(file_path):
@@ -79,7 +79,6 @@ def mockShift_neutral_V2():
 
     print(f"【V2.0 正确流程】IC (先移位，后中性化): {ic_clean:.4f}")
 import pandas as pd
-from pathlib import Path
 
 
 def delete_duplicates_partitioned():
@@ -91,9 +90,9 @@ def delete_duplicates_partitioned():
     """
     # --- 步骤 0: 定义路径 ---
     # 只需要定义到分区文件夹的根目录
-    BASE_DATA_DIR = Path(r'D:\lqs\quantity\parquet_data\daily_hfq_cleaned')
+    BASE_DATA_DIR = get_market_data_path('daily_hfq').parent / 'daily_hfq_cleaned'
     # 【强烈建议】将清洗后的数据保存到一个全新的目录，而不是覆盖原始数据！
-    CLEANED_DATA_DIR = Path(r'D:\lqs\quantity\parquet_data\daily_hfq_cleaned_v2')
+    CLEANED_DATA_DIR = get_market_data_path('daily_hfq').parent / 'daily_hfq_cleaned_v2'
 
     print(f"数据源路径: {BASE_DATA_DIR}")
     print(f"清洗后数据保存路径: {CLEANED_DATA_DIR}")
@@ -166,7 +165,7 @@ def delete_duplicates_partitioned():
 
 
 if __name__ == '__main__':
-    path = LOCAL_PARQUET_DATA_DIR / 'index_daily.parquet'
+    path = get_market_data_path('index_daily.parquet')
     df =  pd.read_parquet(path, engine='pyarrow')
     print(df)
     # download_index_daily_info()

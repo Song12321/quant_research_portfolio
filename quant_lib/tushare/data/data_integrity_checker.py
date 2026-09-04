@@ -12,7 +12,12 @@ from functools import reduce
 
 # 假设您的项目结构，这是您常量配置文件所在的位置
 # 请根据您的实际情况修改
-from quant_lib.config.constant_config import LOCAL_PARQUET_DATA_DIR, parquet_file_names, every_day_parquet_file_names
+from quant_lib.config.constant_config import (
+    MARKET_DATA_ROOT,
+    every_day_parquet_file_names,
+    get_market_data_path,
+    parquet_file_names,
+)
 from quant_lib.utils import is_trading_day
 
 warnings.filterwarnings('ignore')
@@ -28,18 +33,18 @@ class DataIntegrityChecker:
             data_path: 数据存储路径，如果为None则使用默认路径
             start_year: 检查的起始年份
         """
-        self.data_path = data_path or LOCAL_PARQUET_DATA_DIR
+        self.data_root = MARKET_DATA_ROOT if data_path is None else Path(data_path)
 
         self.start_day = pd.to_datetime('20180101')
         self.end_day = pd.Timestamp.today().normalize()
         self.end_day = pd.to_datetime('20250712')
         self._cache = {}  # 优化建议：增加类内缓存，避免重复读取文件
 
-        if not self.data_path.exists():
-            raise FileNotFoundError(f"数据路径不存在: {self.data_path}")
+        if not self.data_root.is_dir():
+            raise FileNotFoundError(f"数据路径不存在: {self.data_root}")
 
         print(f"数据完整性检验器初始化完成")
-        print(f"数据路径: {self.data_path}")
+        print(f"数据路径: {self.data_root}")
         print(f"检验时间范围: {self.start_day} - {self.end_day}")
 
     def _load_data(self, file_name: str, partitioned: bool = False) -> Optional[pd.DataFrame]:
@@ -52,7 +57,7 @@ class DataIntegrityChecker:
         if file_name in self._cache:
             return self._cache[file_name]
 
-        file_path = self.data_path / file_name
+        file_path = get_market_data_path(file_name, self.data_root)
         if file_path.exists():
             try:
                 df = pd.read_parquet(file_path)

@@ -7,7 +7,7 @@ import baostock as bs
 import pandas as pd
 
 from data.local_data_load import load_income_df, load_dividend_events_long
-from quant_lib.config.constant_config import LOCAL_PARQUET_DATA_DIR, parquet_file_names, every_day_parquet_file_names, \
+from quant_lib.config.constant_config import get_market_data_path, parquet_file_names, every_day_parquet_file_names, \
     need_fix
 from quant_lib.config.logger_config import setup_logger
 
@@ -23,9 +23,9 @@ logger = setup_logger(__name__)
 
 def tesasdadst():
     ret = call_ts_tushare_api("pro_bar", ts_code='000001.SZ', start_date='20250711', end_date='20250711', adj='hfq')
-    daily_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily' / 'year=2025' / 'data.parquet')
-    daily_basic_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily_basic' / 'year=2025' / 'data.parquet')
-    hfq_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily_hfq' / 'year=2025' / 'data.parquet')
+    daily_df = pd.read_parquet(get_market_data_path('daily') / 'year=2025' / 'data.parquet')
+    daily_basic_df = pd.read_parquet(get_market_data_path('daily_basic') / 'year=2025' / 'data.parquet')
+    hfq_df = pd.read_parquet(get_market_data_path('daily_hfq') / 'year=2025' / 'data.parquet')
 
     logger.info("测试完成")
 
@@ -39,7 +39,7 @@ def tesasdadst():
 
 def read_():
     for name in ['daily_basic', 'daily_hfq', 'namechange.parquet', 'stock_basic.parquet']:
-        df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / name)
+        df = pd.read_parquet(get_market_data_path(name))
         print(f"{name}\n")
         print(f'{df.isna().mean()}')
         print("---------------------\n")
@@ -47,7 +47,7 @@ def read_():
 
 def api():
     df = call_ts_tushare_api('pro_bar', ts_code='688086.SH', start_date='20180101', end_date='20181231')
-    all_stocks_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'stock_basic.parquet')
+    all_stocks_df = pd.read_parquet(get_market_data_path('stock_basic.parquet'))
     symbols = all_stocks_df[~all_stocks_df['ts_code'].str.endswith('.BJ')]['ts_code'].unique().tolist()
     df = call_ts_tushare_api('pro_bar', ts_code='000006.SZ', adj='hfq', start_date='20180101',
                              end_date='20251011')  # 到20240305都是有数据的
@@ -55,13 +55,13 @@ def api():
 
 
 def red_close():
-    df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily_basic')
+    df = pd.read_parquet(get_market_data_path('daily_basic'))
     df = df[df['ts_code'] == '000005.SZ']
     print(df)
 
 
 def read_namechange():
-    df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'namechange.parquet')
+    df = pd.read_parquet(get_market_data_path('namechange.parquet'))
     df = df[df['ts_code'] == '000001.SZ']
     df = df.sort_values('start_date')
     print(df)
@@ -108,14 +108,14 @@ def compare_local_and_net():
                      '603520.SH', '603538.SH', '603598.SH', '603603.SH', '603616.SH', '603659.SH', '603667.SH',
                      '603696.SH', '603718.SH', '603778.SH', '603822.SH', '603843.SH', '603887.SH', '603986.SH',
                      '603988.SH', '603998.SH']
-    daily_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily')
+    daily_df = pd.read_parquet(get_market_data_path('daily'))
     daily_df = daily_df[daily_df['ts_code'] == '000806.SZ ']
-    local_hfq_ret = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily_hfq')
-    daily_basic = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily_basic')
-    namechange = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'namechange.parquet')
-    suspend_d = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'suspend_d.parquet')
-    stock_basic = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'stock_basic.parquet')
-    final_indicator_vip = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'fina_indicator.parquet')
+    local_hfq_ret = pd.read_parquet(get_market_data_path('daily_hfq'))
+    daily_basic = pd.read_parquet(get_market_data_path('daily_basic'))
+    namechange = pd.read_parquet(get_market_data_path('namechange.parquet'))
+    suspend_d = pd.read_parquet(get_market_data_path('suspend_d.parquet'))
+    stock_basic = pd.read_parquet(get_market_data_path('stock_basic.parquet'))
+    final_indicator_vip = pd.read_parquet(get_market_data_path('fina_indicator.parquet'))
     df = call_pro_tushare_api("fina_indicator", end_date='20241231')
 
     for miss_ts_code in miss_ts_codes:
@@ -152,8 +152,8 @@ def verify_pb_lookahead_bias(DATE_TO_CHECK: str = '2024-10-08'):
     是否存在基于财报公告日的未来数据。
     """
     # ▼▼▼▼▼ 【请修改】替换成你自己的数据文件路径 ▼▼▼▼▼
-    DAILY_BASIC_PATH = Path(LOCAL_PARQUET_DATA_DIR / 'daily_basic')
-    BALANCESHEET_PATH = Path(LOCAL_PARQUET_DATA_DIR / 'balancesheet.parquet')
+    DAILY_BASIC_PATH = get_market_data_path('daily_basic')
+    BALANCESHEET_PATH = get_market_data_path('balancesheet.parquet')
     # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     # --- 1. 设定我们的“观测”目标 ---
@@ -241,7 +241,7 @@ def find_dividend_and_bonus_stocks():
 
 
 def look_daily_pct_chg():
-    daily_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily')
+    daily_df = pd.read_parquet(get_market_data_path('daily'))
     daily_df['trade_date'] = pd.to_datetime(daily_df['trade_date'])
     pct_chg_wide = pd.pivot_table(
         daily_df,
@@ -258,7 +258,7 @@ import akshare as ak
 
 # 获取后复权数据
 def get_from_akshare():
-    # hfq_long_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily_hfq')
+    # hfq_long_df = pd.read_parquet(get_market_data_path('daily_hfq'))
     # hfq_long_df['trade_date'] = pd.to_datetime(hfq_long_df['trade_date'])
     #
     # close_adj_df = pd.pivot_table(hfq_long_df,index='trade_date', columns='ts_code', values='close')
@@ -275,7 +275,7 @@ def check_dividend_and_bonus(stock_code, target_date: str):
     """
     # 确保时间是 datetime
     # 读取长表
-    daily_long_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily')
+    daily_long_df = pd.read_parquet(get_market_data_path('daily'))
     # 转换成长 -> 宽
     close_df = pd.pivot_table(
         daily_long_df,
@@ -361,7 +361,7 @@ def t_bao_pct_chg():
 
 
 def check_sus(stock_code):
-    suspend_d = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'suspend_d.parquet')
+    suspend_d = pd.read_parquet(get_market_data_path('suspend_d.parquet'))
     suspend_d.index = pd.to_datetime(suspend_d['trade_date'])
     suspend_d = suspend_d.sort_index()
     suspend_d = suspend_d[suspend_d['ts_code'] == stock_code]
@@ -369,7 +369,7 @@ def check_sus(stock_code):
 
 
 def read_close(stock_code, start_date, end_date):
-    long = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily')
+    long = pd.read_parquet(get_market_data_path('daily'))
     close_df = pd.pivot_table(long, index='trade_date', columns='ts_code', values='close')
     close_df.index = pd.to_datetime(close_df.index)
     start_date = pd.to_datetime(start_date)
@@ -387,7 +387,7 @@ def _load_dynamic_index_components(index_code: str,
     # print(f"    加载 {index_code} 动态成分股数据...")
 
     index_file_name = index_code.replace('.', '_')
-    index_data_path = LOCAL_PARQUET_DATA_DIR / 'index_weights' / index_file_name
+    index_data_path = get_market_data_path('index_weights') / index_file_name
 
     if not index_data_path.exists():
         raise ValueError(f"未找到指数 {index_code} 的成分股数据，请先运行downloader下载")
@@ -412,7 +412,7 @@ def _load_dynamic_index_components_by_stock_code(sotck_code: str,
     """加载动态指数成分股数据"""
     # print(f"    加载 {index_code} 动态成分股数据...")
 
-    index_data_path = LOCAL_PARQUET_DATA_DIR / 'index_weights/000852_SH'
+    index_data_path = get_market_data_path('index_weights') / '000852_SH'
 
     # 直接读取分区数据，pandas会自动合并所有year=*分区
     components_df = pd.read_parquet(index_data_path)
@@ -432,7 +432,7 @@ def _load_dynamic_index_components_by_stock_code(sotck_code: str,
 
 
 def get_hfq(stock_codes, start_date, end_date, column):
-    long = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily_hfq')
+    long = pd.read_parquet(get_market_data_path('daily_hfq'))
     clode_hfq = pd.pivot_table(long, index='trade_date', columns='ts_code', values=f'{column}')
     clode_hfq.index = pd.to_datetime(clode_hfq.index, format='%Y%m%d')
     if start_date is not None:
@@ -447,7 +447,7 @@ def get_hfq(stock_codes, start_date, end_date, column):
 
 
 def t_daily(stock_code, start_date, end_date, column):
-    long = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily')
+    long = pd.read_parquet(get_market_data_path('daily'))
     clode_hfq = pd.pivot_table(long, index='trade_date', columns='ts_code', values=f'{column}')
     clode_hfq.index = pd.to_datetime(clode_hfq.index, format='%Y%m%d')
     clode_hfq = clode_hfq[(
@@ -587,7 +587,7 @@ if __name__ == '__main__':
     df_check = check_dividend_and_bonus('300971.SZ', '2023-03-22')
     print(df_check)
 
-    df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily_hfq')
+    df = pd.read_parquet(get_market_data_path('daily_hfq'))
     df['trade_date'] = pd.to_datetime(df['trade_date'], format='%Y%m%d')
     df = df[(df['trade_date'] >= pd.to_datetime('20250415')) and (df['trade_date'] <= pd.to_datetime('20250715'))]
     df = call_ts_tushare_api("pro_bar", ts_code="000008.SZ", start_date='20180101', adj='hfq', end_date='20180501'

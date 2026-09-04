@@ -1,10 +1,10 @@
 import pandas as pd
 
-from quant_lib.config.constant_config import LOCAL_PARQUET_DATA_DIR
+from quant_lib.config.constant_config import get_market_data_path
 
 
 def load_index_daily(index_code):
-    index_daily = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'index_daily.parquet')
+    index_daily = pd.read_parquet(get_market_data_path('index_daily.parquet'))
     index_daily = index_daily[index_daily['ts_code'] == index_code]
     index_daily['trade_date'] = pd.to_datetime(index_daily['trade_date'])
     # set_index() 也将创建一个 DatetimeIndex，这对于时间序列分析至关重要
@@ -21,7 +21,7 @@ def load_sw_l_n_codes(l_n:str):#'一级行业指数'
     if l_n=='l2_code':
         raise  ValueError("sw_daily.parquet暂时只有l1数据 ，请下载保存！")
 
-    ret = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'index_basic.parquet')
+    ret = pd.read_parquet(get_market_data_path('sw_basic_info.parquet'))
     ret = ret[ret['category']== category]
     return ret['ts_code']
 #ok
@@ -30,7 +30,7 @@ def load_sw_l_n_daily(ln_code:str):
     if ln_code   not in l_n_codes:
         raise ValueError(f'load_sw_l_n_daily传入l_n_code有问题-->{ln_code}')
     ts_codes = load_sw_l_n_codes(ln_code)
-    sw_daily = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'sw_daily.parquet')
+    sw_daily = pd.read_parquet(get_market_data_path('sw_daily.parquet'))
     sw_daily = sw_daily[sw_daily['ts_code'].isin(ts_codes)]
     sw_daily['trade_date'] = pd.to_datetime(sw_daily['trade_date'])
     #改名！
@@ -42,7 +42,7 @@ def load_sw_l_n_daily(ln_code:str):
 
 def load_trading_lists(start,end):
     # 获取该年度所有交易日
-    trade_cal = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'trade_cal.parquet')
+    trade_cal = pd.read_parquet(get_market_data_path('trade_cal.parquet'))
     trade_cal['cal_date'] = pd.to_datetime(trade_cal['cal_date'])
     trade_dates = trade_cal[
         (trade_cal['cal_date'] >= pd.to_datetime(start)) &
@@ -73,11 +73,11 @@ def get_tomorrow_b_day(trading_days:list,targetDay:pd.DatetimeIndex):
 
     return previous_day.date()
 def load_all_stock_codes():
-    df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'stock_basic.parquet')
+    df = pd.read_parquet(get_market_data_path('stock_basic.parquet'))
     return list(df['ts_code'].unique())
 
 def load_price_hfq(price_type,start,end):
-    df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily_hfq')
+    df = pd.read_parquet(get_market_data_path('daily_hfq'))
     df_pivot = df.pivot(index='trade_date', columns='ts_code', values=price_type)
     df_pivot.index = pd.to_datetime(df_pivot.index)
     #时间
@@ -87,7 +87,7 @@ def load_price_hfq(price_type,start,end):
 
     return df_pivot
 def load_cashflow_df():
-    df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'cashflow.parquet')
+    df = pd.read_parquet(get_market_data_path('cashflow.parquet'))
     df['ann_date'] = pd.to_datetime(df['ann_date'])
     df['end_date'] = pd.to_datetime(df['end_date'])
     df = df.sort_values(by=['ts_code', 'end_date', 'update_flag'], ascending=[True, True, False]).drop_duplicates(
@@ -102,7 +102,7 @@ def load_cashflow_df():
 
 
 def load_income_df():
-    df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'income.parquet')
+    df = pd.read_parquet(get_market_data_path('income.parquet'))
     df['ann_date'] = pd.to_datetime(df['ann_date'])
     df['end_date'] = pd.to_datetime(df['end_date'])
     df = df.sort_values(by=['ts_code', 'end_date', 'update_flag'], ascending=[True, True, False]).drop_duplicates(
@@ -123,7 +123,7 @@ def load_income_df():
     return df
 
 def load_fina_indicator_df():
-    df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'fina_indicator.parquet')
+    df = pd.read_parquet(get_market_data_path('fina_indicator.parquet'))
     df['ann_date'] = pd.to_datetime(df['ann_date'])
     df['end_date'] = pd.to_datetime(df['end_date'])
     df = df.sort_values(by=['ts_code', 'end_date', 'update_flag'], ascending=[True, True, False]).drop_duplicates(
@@ -133,7 +133,7 @@ def load_fina_indicator_df():
     return df
 
 def load_balancesheet_df():
-    df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'balancesheet.parquet')
+    df = pd.read_parquet(get_market_data_path('balancesheet.parquet'))
     df['ann_date'] = pd.to_datetime(df['ann_date'])
     df['end_date'] = pd.to_datetime(df['end_date'])
     df = df.sort_values(by=['ts_code', 'end_date', 'update_flag'], ascending=[True, True, False]).drop_duplicates(
@@ -145,7 +145,7 @@ def load_balancesheet_df():
 
 
 def load_dividend_events_long():
-    df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'dividend.parquet')
+    df = pd.read_parquet(get_market_data_path('dividend.parquet'))
     df['ex_date'] = pd.to_datetime(df['ex_date'])
     df['ann_date'] = pd.to_datetime(df['ann_date'])
     df = df.drop_duplicates()
@@ -155,7 +155,7 @@ def load_dividend_events_long():
 
 
 def load_suspend_d_df():
-    df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'suspend_d.parquet')
+    df = pd.read_parquet(get_market_data_path('suspend_d.parquet'))
     df['trade_date'] = pd.to_datetime(df['trade_date'])
     return df.sort_values(by=['trade_date'], ascending=[True], inplace=False)
 
@@ -173,7 +173,7 @@ def get_trading_dates(start_date: str=None, end_date: str=None) -> pd.DatetimeIn
     try:
         # --- 步骤1：读取并转换日历数据 ---
         # 假设 trade_cal.parquet 存在且包含 'cal_date' 和 'is_open' 列
-        trade_cal = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'trade_cal.parquet')  # 请替换为你的实际路径
+        trade_cal = pd.read_parquet(get_market_data_path('trade_cal.parquet'))
 
         # 【核心修正 1】: 立即将文件中的日期列转换为datetime对象
         trade_cal['cal_date_dt'] = pd.to_datetime(trade_cal['cal_date'], errors='raise')

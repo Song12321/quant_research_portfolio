@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from bisect import bisect_right
 
-from quant_lib.config.constant_config import LOCAL_PARQUET_DATA_DIR
+from quant_lib.config.constant_config import get_market_data_path
 from quant_lib.config.constant_config import permanent__day
 
 
@@ -71,7 +71,7 @@ class PointInTimeIndustryMap:
         return self._maps_on_event_dates[target_event_date]
 
 def get_industry_record_df_processed():
-    df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'industry_record.parquet')
+    df = pd.read_parquet(get_market_data_path('industry_record.parquet'))
     df['in_date'] = pd.to_datetime(df['in_date'])
     df['out_date'] = pd.to_datetime(df['out_date'])
 

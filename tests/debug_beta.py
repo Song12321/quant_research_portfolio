@@ -4,12 +4,12 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-from quant_lib.config.constant_config import LOCAL_PARQUET_DATA_DIR
+from quant_lib.config.constant_config import get_market_data_path
 
 # ▼▼▼▼▼ 【请务必修改为你的真实文件路径】 ▼▼▼▼▼
-UNADJUSTED_DAILY_PATH = Path(LOCAL_PARQUET_DATA_DIR/'daily')
-DIVIDEND_EVENTS_PATH = Path(LOCAL_PARQUET_DATA_DIR/'dividend.parquet')
-INDEX_DAILY_PATH = Path(LOCAL_PARQUET_DATA_DIR/'index_daily.parquet')  # 假设
+UNADJUSTED_DAILY_PATH = get_market_data_path('daily')
+DIVIDEND_EVENTS_PATH = get_market_data_path('dividend.parquet')
+INDEX_DAILY_PATH = get_market_data_path('index_daily.parquet')
 
 
 # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲

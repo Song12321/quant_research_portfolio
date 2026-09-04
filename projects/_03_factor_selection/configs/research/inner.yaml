@@ -1,7 +1,6 @@
 stage: inner
 experiment_name: single_factor_inner
 output_root: '../../workspace'
-data_root: 'D:\lqs\quantity\parquet_data'
 factor_definition_dir: '../factors/definitions'
 direction_output_file: '../factors/inner_resolved_directions.yaml'
 

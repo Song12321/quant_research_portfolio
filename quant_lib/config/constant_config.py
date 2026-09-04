@@ -21,8 +21,43 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
 
-# 数据路径
-LOCAL_PARQUET_DATA_DIR = Path('D:\\lqs\\quantity\\parquet_data')
+# 市场数据路径：未来整体迁移时，只修改此处的唯一绝对路径。
+MARKET_DATA_ROOT = Path(r'D:\lqs\quantity\market_data')
+
+# 所有数据集均以 MARKET_DATA_ROOT 为根目录。键沿用项目内已有的逻辑数据集名。
+_DATASET_RELATIVE_PATHS = {
+    'trade_cal.parquet': Path('shared/trade_cal.parquet'),
+    'stock_basic.parquet': Path('stock/reference/stock_basic.parquet'),
+    'industry_record.parquet': Path('stock/reference/industry_record.parquet'),
+    'daily': Path('stock/quotes/daily'),
+    'daily_hfq': Path('stock/quotes/daily_hfq'),
+    'adj_factor': Path('stock/quotes/adj_factor'),
+    'daily_basic': Path('stock/market_metrics/daily_basic'),
+    'margin_detail': Path('stock/market_metrics/margin_detail'),
+    'stk_limit': Path('stock/trading_constraints/stk_limit'),
+    'suspend_d.parquet': Path('stock/trading_constraints/suspend_d.parquet'),
+    'balancesheet.parquet': Path('stock/fundamentals/balancesheet.parquet'),
+    'cashflow.parquet': Path('stock/fundamentals/cashflow.parquet'),
+    'income.parquet': Path('stock/fundamentals/income.parquet'),
+    'fina_indicator.parquet': Path('stock/fundamentals/fina_indicator.parquet'),
+    'dividend.parquet': Path('stock/corporate_actions/dividend.parquet'),
+    'namechange.parquet': Path('stock/corporate_actions/namechange.parquet'),
+    'index_daily.parquet': Path('index/broad_market/quotes/index_daily.parquet'),
+    'index_weights': Path('index/broad_market/constituents/index_weights'),
+    'sw_basic_info.parquet': Path('index/shenwan/reference/sw_basic_info.parquet'),
+    'sw_daily.parquet': Path('index/shenwan/quotes/sw_daily.parquet'),
+}
+
+
+def get_market_data_path(dataset_name: str, root: Path | None = None) -> Path:
+    """返回已登记数据集的路径；未登记名称必须由调用方修正。"""
+    try:
+        relative_path = _DATASET_RELATIVE_PATHS[dataset_name]
+    except KeyError as exc:
+        raise ValueError(f'未知市场数据集: {dataset_name}') from exc
+
+    data_root = MARKET_DATA_ROOT if root is None else Path(root)
+    return data_root / relative_path
 
 # 回测配置
 DEFAULT_BENCHMARK = '000300.SH'

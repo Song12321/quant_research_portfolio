@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import warnings
 
-from quant_lib.config.constant_config import LOCAL_PARQUET_DATA_DIR
+from quant_lib.config.constant_config import MARKET_DATA_ROOT, get_market_data_path
 from quant_lib.tushare.tushare_client import TushareClient
 
 warnings.filterwarnings('ignore')
@@ -31,13 +31,13 @@ class DataForensics:
         """
         初始化诊断器，预加载基础参照数据。
         """
-        self.data_path = data_path or LOCAL_PARQUET_DATA_DIR
+        self.data_root = MARKET_DATA_ROOT if data_path is None else Path(data_path)
         print(f"数据法证诊断器初始化...")
-        print(f"使用数据路径: {self.data_path}")
+        print(f"使用数据路径: {self.data_root}")
 
         # 1. 预加载股票基本信息，作为我们的"户籍系统"
         try:
-            self.stock_basic = self._safe_read_parquet(self.data_path / 'stock_basic.parquet')
+            self.stock_basic = self._safe_read_parquet(get_market_data_path('stock_basic.parquet', self.data_root))
             self.stock_basic['list_date'] = pd.to_datetime(self.stock_basic['list_date'])
             self.stock_basic['delist_date'] = pd.to_datetime(self.stock_basic['delist_date'])
 
@@ -50,7 +50,7 @@ class DataForensics:
 
         # 2. 预加载交易日历
         try:
-            self.trade_cal = self._safe_read_parquet(self.data_path / 'trade_cal.parquet')
+            self.trade_cal = self._safe_read_parquet(get_market_data_path('trade_cal.parquet', self.data_root))
             self.trade_cal['cal_date'] = pd.to_datetime(self.trade_cal['cal_date'])
             self.trading_dates = self.trade_cal[self.trade_cal['is_open'] == 1]['cal_date'].sort_values()
             print(f"✓ 交易日历加载成功，共 {len(self.trading_dates)} 个交易日。")
@@ -90,16 +90,16 @@ class DataForensics:
         Returns:
             加载的DataFrame
         """
-        dataset_path = self.data_path / dataset_name
+        dataset_path = get_market_data_path(dataset_name, self.data_root)
 
         if dataset_path.is_dir():
             # 分区数据，直接读取整个目录
             print(f"  -> 检测到分区数据，加载整个目录: {dataset_name}")
             df = self._safe_read_parquet(dataset_path)
-        elif dataset_path.with_suffix('.parquet').exists():
+        elif dataset_path.is_file():
             # 单文件数据
             print(f"  -> 检测到单文件数据: {dataset_name}")
-            df = self._safe_read_parquet(dataset_path.with_suffix('.parquet'))
+            df = self._safe_read_parquet(dataset_path)
         else:
             raise FileNotFoundError(f"数据集不存在: {dataset_name}")
 
@@ -344,7 +344,7 @@ class DataForensics:
 
         report = {
             'generated_at': datetime.now().isoformat(),
-            'data_path': str(self.data_path),
+            'data_path': str(self.data_root),
             'fields_analyzed': [],
             'overall_quality_score': 0.0
         }
@@ -425,7 +425,7 @@ def check_stock_nums_diff():
     #读取所有文件
     ret =[]
     for path in paths:
-        df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / path)
+        df = pd.read_parquet(get_market_data_path(path))
         if('ts_code' in df.columns):
                 stock_num = df['ts_code'].nunique()
                 ret.append({'path': path, 'stock_num': stock_num})
@@ -437,11 +437,11 @@ if __name__ == '__main__':
     stock_basic = TushareClient.get_pro().stock_basic(list_status='L,D,P',
                                                       fields='ts_code,symbol,name,area,industry,fullname,enname,cnspell,market,exchange,curr_type,list_status,list_date,delist_date,is_hs,act_name,act_ent_type')
     all_ts_codes = list(stock_basic['ts_code'].unique())
-    daily_basic_codes = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily_basic')['ts_code'].unique()
+    daily_basic_codes = pd.read_parquet(get_market_data_path('daily_basic'))['ts_code'].unique()
     diff_ts_codes = pd.Series( np.setdiff1d(all_ts_codes, daily_basic_codes))
     diff_ts_codes_really = diff_ts_codes[~diff_ts_codes.str.endswith('.BJ')].unique().tolist()
 
-    info = daily_basic_codes = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'stock_basic.parquet')
+    info = daily_basic_codes = pd.read_parquet(get_market_data_path('stock_basic.parquet'))
 
     check_stock_nums_diff()
     # 1. 实例化诊断器

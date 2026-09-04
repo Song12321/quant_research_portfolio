@@ -203,7 +203,7 @@ forensics.batch_diagnose(core_fields, sample_stocks=3)
 
 ### 常见问题
 - **依赖问题**: 参考 `docs/installation_guide.md`
-- **路径配置**: 检查 `LOCAL_PARQUET_DATA_DIR` 设置
+- **路径配置**: 检查 `MARKET_DATA_ROOT` 设置
 - **内存不足**: 减少 `sample_stocks` 参数
 - **字段不存在**: 使用 `df.columns` 检查实际字段名
 

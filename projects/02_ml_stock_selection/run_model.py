@@ -34,7 +34,6 @@ from quant_lib.utils.file_utils import (
     load_from_yaml
 )
 from quant_lib.config.constant_config import (
-    LOCAL_PARQUET_DATA_DIR,
     MODEL_DIR,
     RESULT_DIR
 )
@@ -71,7 +70,7 @@ def load_config(config_path: str) -> dict:
 #     logger.info("开始加载数据...")
 #
 #     # 创建数据加载器
-#     data_loader = DataLoader(data_path=LOCAL_PARQUET_DATA_DIR)
+#     data_loader = DataLoader()
 #
 #     # 确定需要加载的字段
 #     fields = []
@@ -371,4 +370,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main() 
+    main()

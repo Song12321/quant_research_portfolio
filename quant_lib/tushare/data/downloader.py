@@ -10,7 +10,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from data.local_data_load import load_trading_lists
-from quant_lib.config.constant_config import LOCAL_PARQUET_DATA_DIR
+from quant_lib.config.constant_config import MARKET_DATA_ROOT, get_market_data_path
 from quant_lib.tushare.api_wrapper import call_pro_tushare_api, call_ts_tushare_api
 from quant_lib.tushare.tushare_client import TushareClient
 from quant_lib.utils.report_date import get_reporting_period_day_list
@@ -42,7 +42,7 @@ def get_all_industry_l_n_codes(category:str='一级行业指数'):
     return ret['ts_code']
 def download_sw_basic_info():
     ret = call_pro_tushare_api('index_basic',market='SW')
-    ret.to_parquet(LOCAL_PARQUET_DATA_DIR / 'sw_basic_info.parquet')
+    ret.to_parquet(get_market_data_path('sw_basic_info.parquet'))
     print("保存完成")
 
 def download_index_weights():
@@ -59,7 +59,7 @@ def download_index_weights():
     ]
 
     for index_code in INDEX_CODES_for_tushare:
-        index_path = LOCAL_PARQUET_DATA_DIR / 'index_weights' / f"{index_code.replace('.', '_')}"
+        index_path = get_market_data_path('index_weights') / f"{index_code.replace('.', '_')}"
 
         for year in range(START_YEAR, END_YEAR + 1):
             year_path = index_path / f"year={year}"
@@ -111,7 +111,7 @@ def download_index_weights():
 
 
 def delete_suffix_index():
-    path = LOCAL_PARQUET_DATA_DIR / 'index_daily.parquet'
+    path = get_market_data_path('index_daily.parquet')
     df = pd.read_parquet(path)
     print(df['ts_code'].unique().tolist())
     df['ts_code'] = df['ts_code'].str.split('.').str[0]
@@ -124,7 +124,7 @@ def download_index_daily_info():
     for index_code_key,value in INDEX_CODES_for_tushare.items():
         final_df = call_pro_tushare_api('index_daily', ts_code=value, start_date='20100101', end_date='20250711')
         all.append(final_df)
-    path = LOCAL_PARQUET_DATA_DIR / 'index_daily.parquet'
+    path = get_market_data_path('index_daily.parquet')
     # 先合并DataFrame
     concatenated_df = pd.concat(all, ignore_index=True)
     ##处理！要把 后缀.sh 去掉 000300.SH -》000300  切记！
@@ -140,7 +140,7 @@ def download_suspend_d():
     all_ts_codes = stock_basic['ts_code'].unique().tolist()
 
     # 已有数据
-    old_date_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'suspend_d.parquet')
+    old_date_df = pd.read_parquet(get_market_data_path('suspend_d.parquet'))
 
     already_ts_codes = old_date_df['ts_code'].unique()
 
@@ -166,7 +166,7 @@ def download_suspend_d():
     final_df.drop_duplicates(inplace=True)
 
     # 保存前删除原文件（如果存在）
-    file_path = LOCAL_PARQUET_DATA_DIR / 'suspend_d.parquet'
+    file_path = get_market_data_path('suspend_d.parquet')
     if file_path.exists():
         os.remove(file_path)
 
@@ -187,7 +187,7 @@ def download_stock_info(stock_basic_path):
 
 #已有数据'20100101','20250711'
 def download_cashflow():
-    basic_path = LOCAL_PARQUET_DATA_DIR / 'cashflow.parquet'
+    basic_path = get_market_data_path('cashflow.parquet')
 
     if not basic_path.exists():
         print("--- 正在下载现金流信息 ---")
@@ -211,7 +211,7 @@ def download_cashflow():
 
 #已有数据'20100101','20250711'
 def download_income():
-    basic_path = LOCAL_PARQUET_DATA_DIR / 'income.parquet'
+    basic_path = get_market_data_path('income.parquet')
 
     if not basic_path.exists():
         print("--- 正在下载利润信息 ---")
@@ -235,7 +235,7 @@ def download_income():
 
 #已有数据'20100101','20250711'
 def download_fina_indicator():
-    basic_path = LOCAL_PARQUET_DATA_DIR / 'fina_indicator.parquet'
+    basic_path = get_market_data_path('fina_indicator.parquet')
 
     if not basic_path.exists():
         print("--- 正在下载财务指标数据 ---")
@@ -262,7 +262,7 @@ def download_fina_indicator():
 
 #已有数据'20100101','20250711'
 def download_balancesheet(name='资产负债表'):
-    basic_path = LOCAL_PARQUET_DATA_DIR / 'balancesheet.parquet'
+    basic_path = get_market_data_path('balancesheet.parquet')
 
     if not basic_path.exists():
         print(f"--- 正在下载{name}信息 ---")
@@ -287,7 +287,7 @@ def download_balancesheet(name='资产负债表'):
         print(f"{name}已存在，跳过下载。")
 
 def download_sw_daily(name='sw日线行情'):
-    basic_path = LOCAL_PARQUET_DATA_DIR / 'sw_daily.parquet'
+    basic_path = get_market_data_path('sw_daily.parquet')
     if not basic_path.exists():
         print(f"--- 正在下载{name}信息 ---")
         l1_codes = get_all_industry_l_n_codes()
@@ -314,12 +314,12 @@ def get_all_stock_basic_from_api():
     stock_list = call_pro_tushare_api("stock_basic", list_status='L,D,P', fields='ts_code')['ts_code'].tolist()
     return  stock_list
 def get_all_stock_basic_from_local():
-    stock_list = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'stock_basic.parquet')['ts_code'].tolist()
+    stock_list = pd.read_parquet(get_market_data_path('stock_basic.parquet'))['ts_code'].tolist()
     return  stock_list
 
 #目前6000股票/60
 def download_industry_record():
-    path = LOCAL_PARQUET_DATA_DIR/'industry_record.parquet'
+    path = get_market_data_path('industry_record.parquet')
     if  path.exists():
         raise ValueError("已存在 industry_record，无需下载")
     """
@@ -328,8 +328,8 @@ def download_industry_record():
     print("--- 开始构建行业历史主数据表 ---")
     # 1. 获取所有A股列表 (作为查询目标)
     all_ts_codes = get_all_stock_basic_from_api()
-    suspend_d_df  = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'suspend_d.parquet')
-    namechange  = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'namechange.parquet')
+    suspend_d_df  = pd.read_parquet(get_market_data_path('suspend_d.parquet'))
+    namechange  = pd.read_parquet(get_market_data_path('namechange.parquet'))
 
     # 2. 循环获取每只股票的行业隶属历史
     all_members = []
@@ -371,7 +371,7 @@ def download_industry_record():
 def download_stock_change_name_details():
     # 在 downloader.py 的“下载配套数据”部分，增加以下逻辑
 
-    namechange_path = LOCAL_PARQUET_DATA_DIR / 'namechange.parquet'
+    namechange_path = get_market_data_path('namechange.parquet')
     if not namechange_path.exists():
         print("--- 正在下载股票名称变更历史 ---")
         # Tushare的namechange接口可能需要循环获取，因为它有单次返回限制
@@ -394,7 +394,7 @@ def download_stock_change_name_details():
         print("股票名称变更历史已存在，跳过下载。")
 
 def download_dividend(name='分红送股'):
-    basic_path = LOCAL_PARQUET_DATA_DIR / 'dividend.parquet'#
+    basic_path = get_market_data_path('dividend.parquet')#
 
     if not basic_path.exists():
         print(f"--- 正在下载{name}信息 ---")
@@ -417,11 +417,12 @@ def download_dividend(name='分红送股'):
 # --- 4. 主下载逻辑 ---
 if __name__ == '__main__':
     #todo daily_hfq 曾发生过 数据year字段重复问题！！ 务必重视
-    LOCAL_PARQUET_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if not MARKET_DATA_ROOT.is_dir():
+        raise FileNotFoundError(f"市场数据根目录不存在: {MARKET_DATA_ROOT}")
 
     # --- 下载配套数据 (逻辑不变) ---
     print("\n===== 开始下载全局配套数据 =====")
-    trade_cal_path = LOCAL_PARQUET_DATA_DIR / 'trade_cal.parquet'
+    trade_cal_path = get_market_data_path('trade_cal.parquet')
     if not trade_cal_path.exists():
         print("--- 正在下载交易日历 ---")
         trade_cal = call_pro_tushare_api("trade_cal", start_date=f'{START_YEAR}0101', end_date=f'{END_YEAR}1231')
@@ -431,7 +432,7 @@ if __name__ == '__main__':
     else:
         print("交易日历已存在，跳过下载。")
 
-    stock_basic_path = LOCAL_PARQUET_DATA_DIR / 'stock_basic.parquet'
+    stock_basic_path = get_market_data_path('stock_basic.parquet')
 
     download_stock_info(stock_basic_path)
 
@@ -459,7 +460,7 @@ if __name__ == '__main__':
         }
 
         for name, info in data_to_download_tasks.items():
-            year_path = LOCAL_PARQUET_DATA_DIR / name / f"year={year}"
+            year_path = get_market_data_path(name) / f"year={year}"
             if not year_path.exists():
                 print(f"--- 正在下载 {year} 年的 {name} 数据 ---")
                 all_data_list = []

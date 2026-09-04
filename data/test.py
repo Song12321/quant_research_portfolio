@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from quant_lib.config.constant_config import LOCAL_PARQUET_DATA_DIR
+from quant_lib.config.constant_config import get_market_data_path
 from quant_lib.tushare.data.downloader import download_suspend_d
 from quant_lib.tushare.tushare_client import TushareClient
 
@@ -24,7 +24,7 @@ def get_fields_map():
              ]
 
     for path in paths:
-        orin_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / path)
+        orin_df = pd.read_parquet(get_market_data_path(path))
         print(f'logic_name:{path}')
         if 'trade_date' in orin_df.columns:
             orin_df['trade_date'] = pd.to_datetime(orin_df['trade_date'])
@@ -58,7 +58,7 @@ def dup_check():
         'income.parquet'
     ]
     for path in paths:
-        orin_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / path)
+        orin_df = pd.read_parquet(get_market_data_path(path))
         print(f'logic_name:{path}')
         if 'trade_date' in orin_df.columns:
             orin_df['trade_date'] = pd.to_datetime(orin_df['trade_date'])
@@ -93,7 +93,7 @@ def dup_check_report_type():
         'index_daily.parquet',
     ]
     for path in paths:
-        orin_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / path)
+        orin_df = pd.read_parquet(get_market_data_path(path))
         print(f'logic_name:{path}')
         if 'end_date' in orin_df.columns:
             orin_df['end_date'] = pd.to_datetime(orin_df['end_date'])
@@ -116,7 +116,7 @@ def fq():
 
     # ▼▼▼▼▼ 请在这里修改为你自己的配置 ▼▼▼▼▼
     # 你的“不复权”日线行情文件的真实路径
-    RAW_DAILY_FILE_PATH =  LOCAL_PARQUET_DATA_DIR / 'daily'
+    RAW_DAILY_FILE_PATH = get_market_data_path('daily')
 
     # 你选择的股票和它的一个历史除权日
     STOCK_TO_CHECK = '600519.SH'  # 以贵州茅台为例
@@ -167,41 +167,41 @@ if __name__ == '__main__':
     all_ts_codes = stock_basic['ts_code'].unique().tolist()
 
     # 已有数据
-    old_date_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'suspend_d.parquet')
+    old_date_df = pd.read_parquet(get_market_data_path('suspend_d.parquet'))
 
     already_ts_codes = old_date_df['ts_code'].unique()
 
 
     # 差集
     diff_ts_codes = np.setdiff1d(all_ts_codes, already_ts_codes)
-    info = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'stock_basic.parquet')
+    info = pd.read_parquet(get_market_data_path('stock_basic.parquet'))
 
 
 
 
 
-    index_daily = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'index_daily.parquet')
+    index_daily = pd.read_parquet(get_market_data_path('index_daily.parquet'))
     index_daily['trade_date'] = pd.to_datetime(index_daily['trade_date'])
     daily_df = index_daily[index_daily['trade_date'] >= pd.to_datetime('2025-04-11')]
-    # adj_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'adj_factor')
+    # adj_df = pd.read_parquet(get_market_data_path('adj_factor'))
     # adj_df['trade_date'] = pd.to_datetime(adj_df['trade_date'])
     # adj_df = adj_df.sort_values(by=['ts_code','trade_date'])
     # adj_df = adj_df[adj_df['trade_date'] >= pd.to_datetime('2025-04-11')]
     # adj_df = adj_df.set_index(['ts_code', 'trade_date'])
 
-    daily_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily')
+    daily_df = pd.read_parquet(get_market_data_path('daily'))
     daily_df['trade_date'] = pd.to_datetime(daily_df['trade_date'])
     daily_df = daily_df[daily_df['trade_date'] >= pd.to_datetime('2025-04-11')]
     daily_df = daily_df.set_index(['ts_code', 'trade_date'])
 
 
-    daily_basic_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily_basic')
+    daily_basic_df = pd.read_parquet(get_market_data_path('daily_basic'))
     daily_basic_df['trade_date'] = pd.to_datetime(daily_basic_df['trade_date'])
     daily_basic_df = daily_basic_df[daily_basic_df['trade_date'] >= pd.to_datetime('2025-04-11')]
     daily_basic_df = daily_basic_df.set_index(['ts_code', 'trade_date'])
 
 
-    hfq_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / 'daily_hfq')
+    hfq_df = pd.read_parquet(get_market_data_path('daily_hfq'))
     hfq_df['trade_date'] = pd.to_datetime(hfq_df['trade_date'])
     hfq_df = hfq_df[hfq_df['trade_date'] >= pd.to_datetime('2025-04-11')]
     hfq_df = hfq_df[hfq_df['ts_code'].isin(['000001.SZ','000002.SZ'])]

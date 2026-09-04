@@ -11,7 +11,7 @@ from projects._03_factor_selection.factor_manager.factor_calculator.momentum.sw_
 from projects._03_factor_selection.utils.IndustryMap import PointInTimeIndustryMap
 from projects._03_factor_selection.utils.date.trade_date_utils import map_ann_dates_to_tradable_dates
 from quant_lib import logger
-from quant_lib.config.constant_config import LOCAL_PARQUET_DATA_DIR
+from quant_lib.config.constant_config import get_market_data_path
 
 
 ## 数据统一 tushare 有时候给元 千元 万元!  现在需要达成:统一算元!
@@ -157,7 +157,7 @@ class FactorCalculator:
             return self._three_low_one_high_financial_l1_codes
         try:
             cols = ["l1_code", "l1_name"]
-            industry_df = pd.read_parquet(LOCAL_PARQUET_DATA_DIR / "industry_record.parquet", columns=cols)
+            industry_df = pd.read_parquet(get_market_data_path('industry_record.parquet'), columns=cols)
             mask = industry_df["l1_name"].astype(str).str.contains("银行|非银|证券|保险|金融")
             codes = set(industry_df.loc[mask, "l1_code"].dropna().unique())
         except Exception:

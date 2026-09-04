@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 # --- 请确保这些导入路径和你的项目结构一致 ---
-from quant_lib.config.constant_config import LOCAL_PARQUET_DATA_DIR
+from quant_lib.config.constant_config import get_market_data_path
 from quant_lib.tushare.api_wrapper import call_pro_tushare_api, call_ts_tushare_api
 from quant_lib.tushare.data.downloader import BATCH_SIZE
 
@@ -145,7 +145,7 @@ if __name__ == '__main__':
                     # 在合并到大文件前，先对本次下载的新数据进行一次去重
                     if not final_new_df.empty:
                         final_new_df=final_new_df.drop_duplicates(inplace=False)
-                        year_path = LOCAL_PARQUET_DATA_DIR / dataset_name / f"year={year}" / "data.parquet"
+                        year_path = get_market_data_path(dataset_name) / f"year={year}" / "data.parquet"
                         safe_merge_and_save(year_path, final_new_df,dataset_name   )
 
         print("\n===== 所有数据回填任务完成！ =====")

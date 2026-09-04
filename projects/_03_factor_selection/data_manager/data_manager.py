@@ -34,7 +34,7 @@ from projects._03_factor_selection.utils.component_loader import IndexComponentL
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from quant_lib.config.constant_config import LOCAL_PARQUET_DATA_DIR, permanent__day
+from quant_lib.config.constant_config import get_market_data_path, permanent__day
 from quant_lib.config.logger_config import setup_logger, log_warning
 
 warnings.filterwarnings('ignore')
@@ -134,13 +134,7 @@ class DataManager:
         self.research_end_date = self.config['research_window']['end_date']
         self.buffer_start_date = None
         if need_data_deal:
-            configured_data_root = Path(self.config['data_root']).resolve()
-            if configured_data_root != LOCAL_PARQUET_DATA_DIR.resolve():
-                raise ValueError(
-                    "data_root 与当前仍由专项加载器使用的数据目录不一致: "
-                    f"configured={configured_data_root}, expected={LOCAL_PARQUET_DATA_DIR.resolve()}"
-                )
-            self.data_loader = DataLoader(data_path=configured_data_root)
+            self.data_loader = DataLoader()
             self.raw_dfs = {}
             self.temporary_raw_dfs = {}
             self.stock_pools_dict = None
@@ -740,7 +734,7 @@ class DataManager:
         # print(f"    加载 {index_code} 动态成分股数据...")
 
         index_file_name = index_code.replace('.', '_')
-        index_data_path = LOCAL_PARQUET_DATA_DIR / 'index_weights' / index_file_name
+        index_data_path = get_market_data_path('index_weights') / index_file_name
 
         if not index_data_path.exists():
             raise ValueError(f"未找到指数 {index_code} 的成分股数据，请先运行downloader下载")
@@ -817,7 +811,7 @@ class DataManager:
 
     def get_namechange_data(self) -> pd.DataFrame:
         """获取name改变的数据"""
-        namechange_path = LOCAL_PARQUET_DATA_DIR / 'namechange.parquet'
+        namechange_path = get_market_data_path('namechange.parquet')
 
         return pd.read_parquet(namechange_path)
 
