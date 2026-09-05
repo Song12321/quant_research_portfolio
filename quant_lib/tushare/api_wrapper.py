@@ -42,10 +42,43 @@ shared_rate_limiter = RateLimiter(calls_per_minute=380)
 
 # --- 3. 你的两个API调用函数 (已集成中央限速) ---
 
-# 你之前写的 reach_limit 和 is_token_invalid_error 函数
-def reach_limit(df):
-    # Tushare pro接口单次最大返回8000条
-    return len(df) == 8000 | len(df) == 6000 |len(df) == 5800
+# None 表示当前官方文档未公布单次返回上限，不猜测、不套用其他接口的限制。
+_API_ROW_LIMITS = {
+    'adj_factor': None,
+    'balancesheet_vip': None,
+    'cashflow_vip': None,
+    'daily': 6000,
+    'daily_basic': 6000,
+    'dividend': None,
+    'fina_indicator': 100,
+    'fina_indicator_vip': None,
+    'income_vip': None,
+    'index_basic': 8000,
+    'index_daily': None,
+    'index_member': None,
+    'index_member_all': 2000,
+    'index_weight': None,
+    'margin_detail': 6000,
+    'namechange': None,
+    'pro_bar': None,
+    'stk_limit': 5800,
+    'stock_basic': 6000,
+    'suspend_d': None,
+    'sw_daily': 4000,
+    'trade_cal': None,
+}
+
+
+def reach_limit(func_name: str, df: pd.DataFrame) -> bool:
+    if not isinstance(func_name, str) or not func_name:
+        raise TypeError(f"Tushare接口名类型错误: actual={func_name!r}, expected=非空str")
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(f"Tushare接口返回类型错误: actual={type(df).__name__}, expected=DataFrame")
+    if func_name not in _API_ROW_LIMITS:
+        raise ValueError(f"Tushare接口未配置单次返回上限: api={func_name!r}, expected=根据官方文档明确登记")
+
+    row_limit = _API_ROW_LIMITS[func_name]
+    return row_limit is not None and len(df) >= row_limit
 
 
 def is_token_invalid_error(error_message):
@@ -66,9 +99,12 @@ def call_pro_tushare_api(func_name: str, max_retries=3, **kwargs):
             api_func = getattr(pro, func_name)
             df = api_func(**kwargs)
 
-            if reach_limit(df):
+            if reach_limit(func_name, df):
                 # 这个错误非常严重，直接抛出，让上层程序知道数据不完整
-                raise ValueError(f"API '{func_name}' 返回条数可能已达上限，数据不完整！")
+                raise ValueError(
+                    f"API '{func_name}' 返回条数已达官方单次上限: "
+                    f"rows={len(df)}, limit={_API_ROW_LIMITS[func_name]}，数据可能不完整！"
+                )
             return df
 
         except Exception as e:
@@ -103,9 +139,12 @@ def call_ts_tushare_api(func_name: str, max_retries=3, **kwargs):
             ts = TushareClient.get_ts()
             api_func = getattr(ts, func_name)
             df = api_func(**kwargs)
-            if reach_limit(df):
+            if reach_limit(func_name, df):
                 # 这个错误非常严重，直接抛出，让上层程序知道数据不完整
-                raise ValueError(f"API '{func_name}' 返回条数可能已达上限，数据不完整！")
+                raise ValueError(
+                    f"API '{func_name}' 返回条数已达官方单次上限: "
+                    f"rows={len(df)}, limit={_API_ROW_LIMITS[func_name]}，数据可能不完整！"
+                )
             return df
         except Exception as e:
             # ... (错误处理和Token刷新逻辑保持不变) ...
@@ -123,4 +162,4 @@ def call_ts_tushare_api(func_name: str, max_retries=3, **kwargs):
                 time.sleep(60)
 
     logger.error(f"call_ts_tushare_api调用'{func_name}'在 {max_retries} 次尝试后彻底失败。")
-    return pd.DataFrame()
+    raise ValueError(f"访问Tushare ts接口失败: func_name={func_name}, retries={max_retries}")

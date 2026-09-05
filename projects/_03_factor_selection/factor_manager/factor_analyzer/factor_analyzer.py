@@ -267,11 +267,18 @@ class FactorAnalyzer:
         unsupported = set(configured_calculators) - {"o2o"}
         if unsupported:
             raise ValueError(f"evaluation.returns_calculator 仅支持 o2o，实际: {sorted(unsupported)}")
-        open_df = self.factor_manager.get_prepare_aligned_factor_for_analysis(
-            "open_hfq", stock_pool_name, True
+        open_df = data_manager.get_raw_field("open_hfq").reindex(
+            index=factor_data.index, columns=factor_data.columns
+        )
+        entry_mask = data_manager.stock_pools_dict[stock_pool_name].reindex(
+            index=factor_data.index, columns=factor_data.columns
         )
         calculators = {
-            "o2o": partial(calculate_forward_returns_tradable_o2o, open_df=open_df)
+            "o2o": partial(
+                calculate_forward_returns_tradable_o2o,
+                open_df=open_df,
+                entry_mask=entry_mask,
+            )
         }
         return (
             factor_data,

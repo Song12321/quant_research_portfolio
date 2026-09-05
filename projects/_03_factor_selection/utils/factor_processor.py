@@ -626,7 +626,8 @@ class FactorProcessor:
                 residuals = model.resid
                 # self.neutral_gression_diagnostics(model,date,y_clean,X_clean,residuals)
 
-                # 将中性化后的残差更新回 processed_factor
+                # 当天只保留实际参加回归的残差，风险变量缺失的股票必须为 NaN。
+                processed_factor.loc[date] = np.nan
                 processed_factor.loc[date, residuals.index] = residuals
 
             except Exception as e:

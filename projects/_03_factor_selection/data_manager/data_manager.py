@@ -145,7 +145,16 @@ class DataManager:
             self._existence_matrix = None
             self.pit_map = None
 
-            self.component_loader = IndexComponentLoader()
+            self.component_loader = None
+            if self._requires_index_component_loader():
+                self.component_loader = IndexComponentLoader()
+
+    def _requires_index_component_loader(self) -> bool:
+        pool_profiles = self.config['stock_pool_profiles']
+        return any(
+            pool_profiles[pool_name]['index_filter']['enable']
+            for pool_name in self.get_experiments_pool_names()
+        )
 
     def _resolve_buffer_start_date(self) -> str:
         factor_days = [
@@ -781,6 +790,8 @@ class DataManager:
 
         # 获取构建该指数所需要的基础指数代码列表
         component_source_codes = index_composition_rules[index_code]
+        if self.component_loader is None:
+            raise RuntimeError(f"指数过滤已启用但未初始化成分股加载器: index_code={index_code}")
 
         # --- 逐日应用过滤 ---
         for date in index_stock_pool_df.index:

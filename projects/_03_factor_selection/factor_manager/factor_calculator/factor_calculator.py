@@ -362,42 +362,14 @@ class FactorCalculator:
         return self._create_financial_ratio_factor('net_profit_ttm','total_assets')
     def _calculate_roe_ttm(self) -> pd.DataFrame:
         """
-        计算滚动12个月的净资产收益率 (ROE_TTM)。
-
-        金融逻辑:
-        ROE是衡量公司为股东创造价值效率的核心指标。高ROE意味着公司能用更少的
-        股东资本创造出更多的利润，是“好生意”的标志。
-
-        注意: 这是一个依赖财报数据的复杂因子，其计算逻辑与 cashflow_ttm 类似。
-              你需要确保你的 DataManager 能够提供包含 'net_profit' 和 'total_equity'
-              的季度财务报表数据。
+        在报告期事件层计算 ROE_TTM，再按实际公告可得日广播到日频。
         """
-
-        # --- 步骤一：获取分子和分母 ---
-        # 调用我们刚刚实现的两个生产级函数
-        net_profit_ttm_df = self._calculate_net_profit_ttm()
-        quarterly_equity_df = self._calculate_total_equity()
-
-        # --- 步骤二：对齐数据 ---
-        # align确保两个DataFrame的索引和列完全一致，避免错位计算
-        # join='inner'会取两个因子都存在的股票和日期，是最安全的方式
-        profit_aligned, equity_aligned = net_profit_ttm_df.align(quarterly_equity_df, join='inner', axis=None)
-        equity_lagged_4q = equity_aligned.shift(4)
-        # 平均净资产 = (期初 + 期末) / 2
-        average_equity = (equity_aligned + equity_lagged_4q) / 2
-        # --- 步骤三：风险控制与计算 ---
-        # 核心风控：股东权益可能为负（公司处于资不抵债状态）。
-        # 在这种情况下，ROE的计算没有经济意义，且会导致计算错误。
-        # 我们将分母小于等于0的地方替换为NaN，这样除法结果也会是NaN。
-        # 例如，2021年-2023年，一些陷入困境的地产公司净资产可能为负，其ROE必须被视为无效值。
-        average_equity_safe = average_equity.where(average_equity > 0, np.nan)
-        roe_ttm_df = profit_aligned / average_equity_safe
-
-        # --- 步骤四：后处理 ---
-        # 尽管我们处理了分母为0的情况，但仍可能因浮点数问题产生无穷大值。
-        # 统一替换为NaN，确保因子数据的干净。
-        roe_ttm_df=roe_ttm_df.replace([np.inf, -np.inf], np.nan, inplace=False)
-        return roe_ttm_df
+        income_df = load_income_df()
+        equity_df = load_balancesheet_df()
+        roe_events = _build_roe_quarter_events(income_df, equity_df)
+        trading_dates = self.factor_manager.data_manager._prebuffer_trading_dates
+        stock_codes = sorted(set(income_df['ts_code']).union(equity_df['ts_code']))
+        return _broadcast_roe_events_to_daily(roe_events, trading_dates, stock_codes)
 
 
     def _calculate_gross_margin_ttm(self) -> pd.DataFrame:
@@ -2088,6 +2060,183 @@ class FactorCalculator:
         final_df = merged_df.dropna(subset=['ann_date', factor_name])
 
         return final_df
+
+def _prepare_roe_quarter_source(
+        source_df: pd.DataFrame,
+        value_column: str) -> pd.DataFrame:
+    """整理 ROE 所需的单一季度报表；缺值保留，非法键直接失败。"""
+    required_columns = {'ts_code', 'ann_date', 'end_date', value_column}
+    missing_columns = required_columns.difference(source_df.columns)
+    if missing_columns:
+        raise ValueError(f"ROE 源数据缺少字段: {sorted(missing_columns)}")
+    if source_df.empty:
+        raise ValueError(f"ROE 源数据为空: {value_column}")
+
+    quarterly = source_df[['ts_code', 'ann_date', 'end_date', value_column]].copy().reset_index(drop=True)
+    quarterly['end_date'] = pd.to_datetime(quarterly['end_date'])
+    raw_ann_dates = quarterly['ann_date'].copy()
+    quarterly['ann_date'] = pd.to_datetime(quarterly['ann_date'], errors='coerce')
+    if quarterly['ann_date'].isna().any():
+        invalid_index = quarterly.index[quarterly['ann_date'].isna()][0]
+        invalid_row = quarterly.loc[invalid_index]
+        raise ValueError(
+            "ROE 源数据公告日非法: "
+            f"ts_code={invalid_row['ts_code']}, end_date={invalid_row['end_date']}, "
+            f"field=ann_date, actual={raw_ann_dates.loc[invalid_index]!r}, "
+            "expected=非空且可解析日期"
+        )
+    quarterly[value_column] = pd.to_numeric(quarterly[value_column]).astype(float)
+    if quarterly[['ts_code', 'end_date']].isna().any().any():
+        raise ValueError("ROE 源数据的 ts_code/end_date 不允许缺失")
+    if not quarterly['end_date'].dt.is_quarter_end.all():
+        invalid_dates = quarterly.loc[~quarterly['end_date'].dt.is_quarter_end, 'end_date']
+        raise ValueError(f"ROE 源数据包含非季末报告期: {invalid_dates.iloc[0]}")
+    if quarterly.duplicated(['ts_code', 'end_date']).any():
+        raise ValueError("ROE 源数据的 ts_code/end_date 必须唯一")
+
+    quarterly['quarter'] = quarterly['end_date'].dt.to_period('Q-DEC')
+    return quarterly.sort_values(['ts_code', 'end_date']).reset_index(drop=True)
+
+
+def _build_strict_net_profit_ttm_events(income_df: pd.DataFrame) -> pd.DataFrame:
+    """用连续单季度利润计算 TTM，不跨越缺失季度。"""
+    income = _prepare_roe_quarter_source(income_df, 'n_income_attr_p')
+    previous = income[['ts_code', 'quarter', 'ann_date', 'n_income_attr_p']].copy()
+    previous['quarter'] = previous['quarter'] + 1
+    previous = previous.rename(columns={
+        'ann_date': 'previous_ann_date',
+        'n_income_attr_p': 'previous_cumulative_profit',
+    })
+    single = income.merge(previous, on=['ts_code', 'quarter'], how='left')
+    current_finite = np.isfinite(single['n_income_attr_p'])
+    previous_finite = np.isfinite(single['previous_cumulative_profit'])
+    is_q1 = single['end_date'].dt.month.eq(3)
+    q1_valid = is_q1 & current_finite & single['ann_date'].notna()
+    later_valid = (~is_q1) & current_finite & previous_finite
+    later_valid &= single[['ann_date', 'previous_ann_date']].notna().all(axis=1)
+    single['single_quarter_profit'] = np.nan
+    single.loc[q1_valid, 'single_quarter_profit'] = single.loc[q1_valid, 'n_income_attr_p']
+    single.loc[later_valid, 'single_quarter_profit'] = (
+        single.loc[later_valid, 'n_income_attr_p']
+        - single.loc[later_valid, 'previous_cumulative_profit']
+    )
+    single['single_quarter_ann_date'] = pd.NaT
+    single.loc[q1_valid, 'single_quarter_ann_date'] = single.loc[q1_valid, 'ann_date']
+    single.loc[later_valid, 'single_quarter_ann_date'] = single.loc[
+        later_valid, ['ann_date', 'previous_ann_date']
+    ].max(axis=1)
+
+    ttm = income[['ts_code', 'end_date', 'quarter', 'ann_date']].copy()
+    value_columns, ann_columns = [], []
+    for lag in range(4):
+        component = single[['ts_code', 'quarter', 'single_quarter_profit', 'single_quarter_ann_date']].copy()
+        component['quarter'] = component['quarter'] + lag
+        value_column, ann_column = f'profit_q{lag}', f'profit_q{lag}_ann_date'
+        component = component.rename(columns={
+            'single_quarter_profit': value_column,
+            'single_quarter_ann_date': ann_column,
+        })
+        ttm = ttm.merge(component, on=['ts_code', 'quarter'], how='left')
+        value_columns.append(value_column)
+        ann_columns.append(ann_column)
+    valid = ttm[value_columns].notna().all(axis=1) & np.isfinite(ttm[value_columns]).all(axis=1)
+    valid &= ttm[ann_columns].notna().all(axis=1)
+    ttm['net_profit_ttm'] = ttm[value_columns].sum(axis=1).where(valid)
+    ttm['net_profit_ttm_ann_date'] = ttm[ann_columns].max(axis=1).where(valid)
+    return ttm[[
+        'ts_code', 'end_date', 'quarter', 'ann_date',
+        'net_profit_ttm', 'net_profit_ttm_ann_date',
+    ]]
+
+
+def _build_roe_quarter_events(
+        income_df: pd.DataFrame,
+        equity_df: pd.DataFrame) -> pd.DataFrame:
+    """以当期与严格四季度前权益计算 ROE 报告期事件。"""
+    profit = _build_strict_net_profit_ttm_events(income_df)
+    equity = _prepare_roe_quarter_source(equity_df, 'total_hldr_eqy_exc_min_int')
+    current_equity = equity.rename(columns={
+        'ann_date': 'current_equity_ann_date',
+        'total_hldr_eqy_exc_min_int': 'current_equity',
+    })[['ts_code', 'quarter', 'current_equity_ann_date', 'current_equity']]
+    current_equity['_current_equity_record'] = True
+    lagged_equity = equity.rename(columns={
+        'ann_date': 'lagged_equity_ann_date',
+        'total_hldr_eqy_exc_min_int': 'lagged_equity',
+    })[['ts_code', 'quarter', 'lagged_equity_ann_date', 'lagged_equity']]
+    lagged_equity['quarter'] = lagged_equity['quarter'] + 4
+    events = profit.merge(current_equity, on=['ts_code', 'quarter'], how='left')
+    events = events.merge(lagged_equity, on=['ts_code', 'quarter'], how='left')
+    _validate_current_roe_equity(events)
+
+    value_columns = ['net_profit_ttm', 'current_equity', 'lagged_equity']
+    ann_columns = [
+        'net_profit_ttm_ann_date', 'current_equity_ann_date', 'lagged_equity_ann_date'
+    ]
+    valid = events[value_columns].notna().all(axis=1)
+    valid &= np.isfinite(events[value_columns]).all(axis=1)
+    valid &= events[ann_columns].notna().all(axis=1)
+    average_equity = (events['current_equity'] + events['lagged_equity']) / 2
+    valid &= np.isfinite(average_equity) & average_equity.gt(0)
+    roe_ttm = events['net_profit_ttm'] / average_equity
+    valid &= np.isfinite(roe_ttm)
+    events['roe_ttm'] = roe_ttm.where(valid)
+    valid_ann_date = events[ann_columns].max(axis=1)
+    complete_ann_dates = events[ann_columns].notna().all(axis=1)
+    current_ann_columns = ['ann_date', 'current_equity_ann_date']
+    current_reports_available = events[current_ann_columns].notna().all(axis=1)
+    invalid_ann_date = events[current_ann_columns].max(axis=1).where(current_reports_available)
+    events['available_ann_date'] = valid_ann_date.where(complete_ann_dates, invalid_ann_date)
+    return events[['ts_code', 'end_date', 'roe_ttm', 'available_ann_date']]
+
+
+def _validate_current_roe_equity(events: pd.DataFrame) -> None:
+    """每个利润报告期必须有同期、有限的当期权益。"""
+    missing_current = events['_current_equity_record'].isna()
+    if missing_current.any():
+        invalid_row = events.loc[missing_current, ['ts_code', 'end_date']].iloc[0]
+        raise ValueError(
+            "ROE 当期权益记录缺失: "
+            f"ts_code={invalid_row['ts_code']}, end_date={invalid_row['end_date']}, "
+            "field=total_hldr_eqy_exc_min_int, expected=同报告期权益记录"
+        )
+    invalid_current = ~np.isfinite(events['current_equity'])
+    if invalid_current.any():
+        invalid_row = events.loc[invalid_current].iloc[0]
+        raise ValueError(
+            "ROE 当期权益值非法: "
+            f"ts_code={invalid_row['ts_code']}, end_date={invalid_row['end_date']}, "
+            f"field=total_hldr_eqy_exc_min_int, actual={invalid_row['current_equity']!r}, "
+            "expected=有限数值"
+        )
+
+
+def _broadcast_roe_events_to_daily(
+        roe_events: pd.DataFrame,
+        trading_dates: pd.DatetimeIndex,
+        stock_codes: List[str]) -> pd.DataFrame:
+    """广播 ROE 事件；无效新报告的 NaN 会显式终止旧值。"""
+    trading_dates = pd.DatetimeIndex(trading_dates).sort_values()
+    daily = pd.DataFrame(np.nan, index=trading_dates, columns=stock_codes, dtype=float)
+    mapped = roe_events.dropna(subset=['available_ann_date']).copy()
+    mapped['trade_date'] = map_ann_dates_to_tradable_dates(
+        mapped['available_ann_date'], trading_dates
+    )
+    mapped = mapped.dropna(subset=['trade_date'])
+    mapped = mapped.sort_values(['ts_code', 'end_date']).drop_duplicates(
+        subset=['ts_code', 'trade_date'], keep='last'
+    )
+    timeline = pd.DataFrame({'trade_date': trading_dates})
+    for ts_code in stock_codes:
+        stock_events = mapped.loc[
+            mapped['ts_code'].eq(ts_code), ['trade_date', 'roe_ttm']
+        ].sort_values('trade_date')
+        if stock_events.empty:
+            continue
+        latest = pd.merge_asof(timeline, stock_events, on='trade_date', direction='backward')
+        daily[ts_code] = latest['roe_ttm'].to_numpy()
+    return daily
+
 
 def _broadcast_ann_date_to_daily(
                                  sparse_wide_df: pd.DataFrame,

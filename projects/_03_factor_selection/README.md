@@ -38,9 +38,9 @@ runs/inner/<run_id>/
 ## 调用
 
 ```python
-from projects._03_factor_selection.factory import run_test_by_config
+from projects._03_factor_selection.factory import EnhancedTestRunner
 
-run_test_by_config("Inner processed 因子研究")
+EnhancedTestRunner().run("Inner processed 因子研究")
 ```
 
 ## 当前边界

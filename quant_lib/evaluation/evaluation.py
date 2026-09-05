@@ -47,6 +47,7 @@ def safe_winsorize_series(series: pd.Series, limits: list = [0.025, 0.025]) -> p
 
 def calculate_forward_returns_tradable_o2o(period: int,
                                            open_df: pd.DataFrame,
+                                           entry_mask: pd.DataFrame,
                                            winsorize_limits: list = [0.025, 0.025]) -> pd.DataFrame:
     """
     周三收盘算出来的因子！t-1
@@ -54,6 +55,17 @@ def calculate_forward_returns_tradable_o2o(period: int,
     计算从 T 日开盘价到 T+period 日开盘价的未来收益率。
     包含了生存偏差过滤和截面去极值处理。
     """
+    if not isinstance(entry_mask, pd.DataFrame):
+        raise TypeError(f"O2O entry_mask 必须是 DataFrame，实际为 {type(entry_mask).__name__}")
+    if not open_df.index.equals(entry_mask.index) or not open_df.columns.equals(
+        entry_mask.columns
+    ):
+        raise ValueError("O2O entry_mask 必须与 open_df 的 index/columns 完全一致")
+    if entry_mask.isna().to_numpy().any():
+        raise ValueError("O2O entry_mask 不允许包含缺失值")
+    if not all(pd.api.types.is_bool_dtype(dtype) for dtype in entry_mask.dtypes):
+        raise TypeError("O2O entry_mask 的所有列必须是布尔类型")
+
     open_prices = open_df.copy(deep=True)
 
     # 1. 定义起点和终点价格 (逻辑核心)
@@ -66,8 +78,8 @@ def calculate_forward_returns_tradable_o2o(period: int,
     # 3. 计算原始收益率
     forward_returns_raw = (end_price / start_price) - 1
 
-    # 4. 应用掩码
-    forward_returns_masked = forward_returns_raw.where(survived_mask)
+    # 4. T 日股票池只限制建仓资格，不得用 T+period 的未来股票池删除标签
+    forward_returns_masked = forward_returns_raw.where(survived_mask & entry_mask)
 
     # 5. 在截面 (axis=1) 上进行去极值
     forward_returns_winsorized = forward_returns_masked.apply(

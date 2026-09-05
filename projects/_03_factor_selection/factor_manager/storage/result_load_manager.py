@@ -72,11 +72,17 @@ class ResultLoadManager:
             return df
         return  df.loc[start_date:end_date]
 
-    def get_o2o_return_data(self, stock_pool_index, start_date, end_date, period_days):
+    def get_o2o_return_data(
+        self, stock_pool_index, start_date, end_date, period_days, entry_mask
+    ):
         path = self.main_work_path / stock_pool_index /'open_hfq'/ self.version / 'open_hfq.parquet'
         df =pd.read_parquet(path)
         df.index = pd.to_datetime(df.index)
-        returns = calculate_forward_returns_tradable_o2o(period=period_days, open_df=df)
+        returns = calculate_forward_returns_tradable_o2o(
+            period=period_days,
+            open_df=df,
+            entry_mask=entry_mask,
+        )
         #过滤时间"
         returns = returns.loc[start_date:end_date]
 
