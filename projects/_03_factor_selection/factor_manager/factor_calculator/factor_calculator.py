@@ -154,13 +154,12 @@ class FactorCalculator:
     def _get_financial_l1_codes(self) -> set:
         if self._three_low_one_high_financial_l1_codes is not None:
             return self._three_low_one_high_financial_l1_codes
-        try:
-            cols = ["l1_code", "l1_name"]
-            industry_df = pd.read_parquet(get_market_data_path('industry_record.parquet'), columns=cols)
-            mask = industry_df["l1_name"].astype(str).str.contains("银行|非银|证券|保险|金融")
-            codes = set(industry_df.loc[mask, "l1_code"].dropna().unique())
-        except Exception:
-            codes = set()
+        cols = ["l1_code", "l1_name"]
+        industry_df = pd.read_parquet(get_market_data_path('industry_record.parquet'), columns=cols)
+        mask = industry_df["l1_name"].astype(str).str.contains("银行|非银|证券|保险|金融")
+        codes = set(industry_df.loc[mask, "l1_code"].dropna().unique())
+        if not codes:
+            raise ValueError("行业记录中没有金融行业代码，无法计算价值因子")
         self._three_low_one_high_financial_l1_codes = codes
         return codes
 
@@ -238,19 +237,15 @@ class FactorCalculator:
         rank_pb = self._calc_ts_rank(pb_proxy, cfg)
         score_ts = 1.0 - (rank_pe + rank_pb) / 2.0
 
-        pit_map = getattr(getattr(self.factor_manager, "data_manager", None), "pit_map", None)
+        pit_map = self.factor_manager.data_manager.pit_map
         fin_codes = self._get_financial_l1_codes()
         daily_scores = {}
         for date in common_index:
-            is_fin = None
-            if pit_map is not None and fin_codes:
-                try:
-                    ind_map = pit_map.get_map_for_date(pd.to_datetime(date))
-                except Exception:
-                    ind_map = None
-                if ind_map is not None and not ind_map.empty and "l1_code" in ind_map.columns:
-                    l1 = ind_map["l1_code"].reindex(common_columns)
-                    is_fin = l1.isin(fin_codes)
+            ind_map = pit_map.get_map_for_date(date)
+            if ind_map.empty or "l1_code" not in ind_map.columns:
+                raise ValueError(f"行业地图缺少 l1_code，无法计算价值因子: date={date}")
+            l1 = ind_map["l1_code"].reindex(common_columns)
+            is_fin = l1.isin(fin_codes)
 
             fin_list = [bm_ratio.loc[date], ep_ratio.loc[date]]
             fin_list.append(divy.loc[date])
@@ -258,13 +253,10 @@ class FactorCalculator:
             nfin_list = [ep_ratio.loc[date], cfo_yield.loc[date], ebit_ev.loc[date]]
 
             score = pd.Series(index=common_columns, dtype=float)
-            if is_fin is None:
-                score = pd.concat(nfin_list, axis=1).mean(axis=1)
-            else:
-                if fin_list:
-                    score.loc[is_fin] = pd.concat(fin_list, axis=1).mean(axis=1)
-                if nfin_list:
-                    score.loc[~is_fin] = pd.concat(nfin_list, axis=1).mean(axis=1)
+            if fin_list:
+                score.loc[is_fin] = pd.concat(fin_list, axis=1).mean(axis=1)
+            if nfin_list:
+                score.loc[~is_fin] = pd.concat(nfin_list, axis=1).mean(axis=1)
 
             daily_scores[date] = score
 

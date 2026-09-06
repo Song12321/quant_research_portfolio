@@ -278,6 +278,7 @@ def calculate_ic(
         raise ValueError("输入的因子或价格数据为空，无法计算IC。")
     for period in forward_periods:
         ic_series_cleaned = calculate_non_overlapping_ic_series(factor_df, returns_calculator,period,min_stocks)
+        total_ic_nodes = len(factor_df.index[:-period:period])
 
         # 修正胜率计算和添加更多统计指标
         ic_mean = ic_series_cleaned.mean()
@@ -307,8 +308,8 @@ def calculate_ic(
             'ic_significant': ic_new_p_value < 0.05,
 
             'ic_Valid Days': len(ic_series_cleaned),
-            'ic_Total Days': len(ic_series_cleaned),
-            'ic_Coverage Rate': len(ic_series_cleaned) / len(ic_series_cleaned)
+            'ic_Total Days': total_ic_nodes,
+            'ic_Coverage Rate': len(ic_series_cleaned) / total_ic_nodes
         }
     return ic_series_periods_dict, stats_periods_dict
 

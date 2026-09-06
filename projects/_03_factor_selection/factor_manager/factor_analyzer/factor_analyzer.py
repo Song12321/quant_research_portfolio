@@ -127,7 +127,7 @@ class FactorAnalyzer:
     ) -> dict:
         """生成正式研究所需且仅需的一组 processed 结果。"""
         if already_processed:
-            processed = self._clip_composite_outliers(factor_data_shifted, factor_name)
+            processed = factor_data_shifted
         else:
             processed = self._process_single_factor(
                 factor_name, factor_data_shifted, stock_pool_name
@@ -176,28 +176,6 @@ class FactorAnalyzer:
             pit_map=self.factor_manager.data_manager.pit_map,
             need_standardize=True,
         )
-
-    @staticmethod
-    def _clip_composite_outliers(
-        factor_df: pd.DataFrame, factor_name: str
-    ) -> pd.DataFrame:
-        """保留旧正式组合评价入口的逐日 1%/99% 极值处理。"""
-        factor_flat = factor_df.stack().dropna()
-        q01 = factor_flat.quantile(0.01)
-        q99 = factor_flat.quantile(0.99)
-        outlier_ratio = ((factor_flat < q01) | (factor_flat > q99)).mean()
-        if outlier_ratio <= 0.02:
-            return factor_df
-
-        processed = factor_df.copy()
-        for date in factor_df.index:
-            daily_values = factor_df.loc[date].dropna()
-            if len(daily_values) > 10:
-                lower = daily_values.quantile(0.01)
-                upper = daily_values.quantile(0.99)
-                processed.loc[date] = daily_values.clip(lower=lower, upper=upper)
-        logger.info(f"组合因子 {factor_name} 保留旧口径极值处理，极值比例 {outlier_ratio:.1%}")
-        return processed
 
     def prepare_data_for_process_factor(
         self,

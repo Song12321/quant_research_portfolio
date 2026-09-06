@@ -249,6 +249,9 @@ class DataManager:
         """按当前研究窗口临时加载原始字段，并对齐到常驻价格网格。"""
         if not self.can_load_raw_field(field_name):
             raise ValueError(f"无法加载原始字段: field={field_name}, 原因=未找到数据源")
+        # 常驻字段已按同一预热区间对齐，直接复用，避免再次从磁盘加载。
+        if field_name in self.raw_dfs:
+            return self.raw_dfs[field_name]
         if field_name in self.temporary_raw_dfs:
             return self.temporary_raw_dfs[field_name]
 
