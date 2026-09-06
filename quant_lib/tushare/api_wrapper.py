@@ -112,12 +112,7 @@ def call_pro_tushare_api(func_name: str, max_retries=3, **kwargs):
             error_message = str(e)
             logger.error(f"call_pro_tushare_api调用'{func_name}'失败: {error_message}")
             if is_token_invalid_error(error_message):
-                if TushareClient.refresh_pro():  # 假设已有refresh_apis可以同时刷新pro和ts
-                    logger.info("Token已刷新，正在立即重试...")
-                    continue
-                else:
-                    logger.error("Token刷新失败，终止此API调用。")
-                    break
+                raise ValueError("token问题，无法调用tushare api")
             if i < max_retries - 1:
                 log_warning(f"非token导致的报错！！正在进行第 {i + 1}/{max_retries} 次重试...")
                 time.sleep(60)

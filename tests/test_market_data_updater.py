@@ -41,9 +41,6 @@ def install_fakes(monkeypatch, root):
         return pd.DataFrame([{'ts_code': params['ts_code'], 'trade_date': params['start_date'],
                               'close': 40.0}])
 
-    monkeypatch.setattr(updater, 'MARKET_DATA_ROOT', root)
-    monkeypatch.setattr(updater, 'call_pro_tushare_api', pro)
-    monkeypatch.setattr(updater, 'call_ts_tushare_api', ts)
     return calls
 
 
