@@ -8,9 +8,7 @@ import pandas as pd
 from quant_lib.config.constant_config import MARKET_DATA_ROOT, ROOT_DIR, get_market_data_path
 
 
-# ===== 用户显式填写：填好日期后直接运行本文件 =====
-START_DATE = ""
-END_DATE = ""
+
 
 DAILY_DATASETS = ("daily", "daily_hfq", "daily_basic", "stk_limit")
 ISSUE_COLUMNS = ("dataset", "observation_date", "ts_code", "issue_type")
@@ -82,13 +80,16 @@ class DataReconManager:
 
         mask = calendar["cal_date"].between(start, end) & calendar["is_open"].eq(1)
         dates = pd.DatetimeIndex(calendar.loc[mask, "cal_date"].unique()).sort_values()
-        stocks = stocks.loc[stocks["ts_code"].str.fullmatch(r"\d{6}\.(SH|SZ|BJ)")]
+        # 当前只侦察沪深股票，北交所股票不进入应有数据集合。
+        stocks = stocks.loc[stocks["ts_code"].str.fullmatch(r"\d{6}\.(SH|SZ)")]
         return dates, stocks, suspend.groupby("trade_date")
 
     def _expected_stocks(self, stocks: pd.DataFrame, suspend, date: pd.Timestamp) -> set: #ok
         # 上市日包含，退市日不包含；退市日期为空表示尚未退市。ST 不影响这里的要求。
-        active = stocks["list_date"].le(date) & (
-            stocks["delist_date"].isna() | stocks["delist_date"].gt(date)
+        active = (
+                stocks["list_date"].le(date) &
+                (stocks["delist_date"].isna() | stocks["delist_date"].gt(date)) &
+                ~stocks["ts_code"].str.endswith(".bj", na=False)
         )
         expected = set(stocks.loc[active, "ts_code"])
         if date in suspend.groups:
@@ -158,6 +159,9 @@ class DataReconManager:
 def main():
     # 只在入口读取顶部参数，核心函数通过显式参数调用。
     output_dir = ROOT_DIR / "results" / "data_recon" / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    # ===== 用户显式填写：填好日期后直接运行本文件 =====
+    START_DATE = "20220401"
+    END_DATE = "20220501"
     summary = DataReconManager().run(START_DATE, END_DATE, output_dir)
     print(summary.to_string(index=False))
     print(f"报告目录: {output_dir}")

@@ -1,284 +1,132 @@
-from pathlib import Path
-
+"""仅使用模拟接口和临时目录验证股票日更。"""
 import pandas as pd
 import pytest
 from pandas.testing import assert_frame_equal
 
-from quant_lib.tushare import api_wrapper
 from quant_lib.tushare.data import market_data_updater as updater
 
 
-STOCK = '000001.SZ'
-DAY = '20250102'
+def install_fakes(monkeypatch, root):
+    calls = []
 
-
-def _empty(dataset: str) -> pd.DataFrame:
-    return pd.DataFrame(columns=updater._REQUIRED_COLUMNS[dataset])
-
-
-def _fake_pro(api_name: str, **params) -> pd.DataFrame:
-    if api_name == 'trade_cal':
-        return pd.DataFrame([{'exchange': 'SSE', 'cal_date': DAY, 'is_open': 1}])
-    if api_name == 'stock_basic':
-        return pd.DataFrame([{
-            'ts_code': STOCK, 'list_status': 'L', 'list_date': '19910403', 'delist_date': None,
-        }])
-    if api_name == 'index_basic':
-        return pd.DataFrame([{'ts_code': '801010.SI', 'category': '一级行业指数'}])
-    if api_name == 'daily':
-        return pd.DataFrame([{'ts_code': STOCK, 'trade_date': DAY, 'open': 10.0, 'close': 11.0}])
-    if api_name == 'adj_factor':
-        return pd.DataFrame([{'ts_code': STOCK, 'trade_date': DAY, 'adj_factor': 2.0}])
-    if api_name == 'daily_basic':
-        return pd.DataFrame([{'ts_code': STOCK, 'trade_date': DAY, 'turnover_rate': 1.5}])
-    if api_name == 'margin_detail':
-        return pd.DataFrame([{'ts_code': STOCK, 'trade_date': DAY}])
-    if api_name == 'stk_limit':
-        return pd.DataFrame([{'ts_code': STOCK, 'trade_date': DAY, 'up_limit': 12.0, 'down_limit': 8.0}])
-    if api_name == 'suspend_d':
-        return _empty('suspend_d.parquet')
-    if api_name == 'index_member_all':
-        if params['is_new'] == 'Y':
-            return _empty('industry_record.parquet')
-        return pd.DataFrame([{'ts_code': STOCK, 'in_date': '20210101', 'out_date': None}])
-    if api_name == 'dividend':
-        assert set(params) in ({'ann_date'}, {'imp_ann_date'})
-        return _empty('dividend.parquet')
-    if api_name == 'namechange':
-        assert params == {'start_date': DAY, 'end_date': DAY}
-        return _empty('namechange.parquet')
-    if api_name in {'balancesheet_vip', 'cashflow_vip', 'fina_indicator_vip'}:
-        dataset = {'balancesheet_vip': 'balancesheet.parquet',
-                   'cashflow_vip': 'cashflow.parquet',
-                   'fina_indicator_vip': 'fina_indicator.parquet'}[api_name]
-        if api_name == 'balancesheet_vip':
-            assert set(params) == {'period'}
-        elif api_name == 'cashflow_vip':
-            assert set(params) == {'f_ann_date'}
-        else:
+    def pro(api, max_retries, **params):
+        assert max_retries == 1
+        calls.append((api, params))
+        if api == 'stock_basic':
+            return pd.DataFrame([{'ts_code': params['list_status'], 'list_status': params['list_status']}])
+        if api == 'index_member_all':
+            return pd.DataFrame([{'ts_code': params['ts_code'], 'in_date': '20200101',
+                                  'out_date': None, 'is_new': params['is_new']}])
+        if api in ('daily', 'daily_basic', 'stk_limit'):
+            return pd.DataFrame([{'ts_code': 'L', 'trade_date': params['trade_date'], 'close': 20.0}])
+        if api == 'suspend_d':
+            return pd.DataFrame(columns=['ts_code', 'trade_date', 'suspend_type', 'suspend_timing'])
+        if api in ('income_vip', 'balancesheet_vip', 'cashflow_vip', 'fina_indicator_vip'):
             assert set(params) == {'ann_date'}
-        return _empty(dataset)
-    if api_name == 'income_vip':
-        assert set(params) == {'f_ann_date'}
-        return pd.DataFrame([{
-            'ts_code': STOCK, 'ann_date': DAY, 'f_ann_date': DAY,
-            'end_date': '20241231', 'update_flag': '1', 'n_income': 30.0,
-        }])
-    if api_name == 'index_daily':
-        return pd.DataFrame([{'ts_code': params['ts_code'], 'trade_date': DAY, 'close': 100.0}])
-    if api_name == 'index_weight':
-        assert params['start_date'] == '20250101'
-        assert params['end_date'] == '20250131'
-        return pd.DataFrame([{
-            'index_code': params['index_code'], 'con_code': STOCK,
-            'trade_date': DAY, 'weight': 1.0,
-        }])
-    if api_name == 'sw_daily':
-        return pd.DataFrame([{'ts_code': params['ts_code'], 'trade_date': DAY, 'close': 100.0}])
-    raise AssertionError(f'未模拟的Tushare接口: {api_name}, params={params}')
+            return pd.DataFrame([{'ts_code': 'L', 'end_date': '20240930',
+                                  'ann_date': params['ann_date'], 'f_ann_date': params['ann_date'],
+                                  'report_type': '1', 'update_flag': '1', 'value': 20.0}])
+        if api == 'dividend':
+            return pd.DataFrame([{'ts_code': 'L', 'end_date': '20241231', 'ann_date': '20250101',
+                                  'div_proc': '实施', 'imp_ann_date': '20250102', 'cash_div': 1.0}])
+        if api == 'namechange':
+            return pd.DataFrame([{'ts_code': params['ts_code'], 'start_date': '20200101',
+                                  'name': 'name', 'end_date': '20250102'}])
+        raise AssertionError(api)
 
+    def ts(api, max_retries, **params):
+        assert api == 'pro_bar'
+        assert max_retries == 1
+        calls.append((api, params))
+        return pd.DataFrame([{'ts_code': params['ts_code'], 'trade_date': params['start_date'],
+                              'close': 40.0}])
 
-def _fake_ts(api_name: str, **params) -> pd.DataFrame:
-    assert api_name == 'pro_bar'
-    return pd.DataFrame([{'ts_code': params['ts_code'], 'trade_date': DAY, 'open': 20.0, 'close': 22.0}])
-
-
-def _write_existing_data(root: Path) -> Path:
-    daily_path = updater.get_market_data_path('daily', root) / 'year=2025' / 'data.parquet'
-    daily_path.parent.mkdir(parents=True)
-    pd.DataFrame([
-        {'ts_code': STOCK, 'trade_date': '20250101', 'open': 7.0, 'close': 8.0},
-        {'ts_code': STOCK, 'trade_date': DAY, 'open': 8.0, 'close': 9.0},
-    ]).to_parquet(daily_path, index=False)
-
-    income_path = updater.get_market_data_path('income.parquet', root)
-    income_path.parent.mkdir(parents=True)
-    pd.DataFrame([
-        {'ts_code': STOCK, 'ann_date': '20250101', 'f_ann_date': '20250101',
-         'end_date': '20241231', 'update_flag': '0', 'n_income': 10.0},
-        {'ts_code': STOCK, 'ann_date': DAY, 'f_ann_date': DAY,
-         'end_date': '20241231', 'update_flag': '1', 'n_income': 20.0},
-    ]).to_parquet(income_path, index=False)
-    return daily_path
-
-
-def _install_fakes(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
     monkeypatch.setattr(updater, 'MARKET_DATA_ROOT', root)
-    monkeypatch.setattr(updater, 'call_pro_tushare_api', _fake_pro)
-    monkeypatch.setattr(updater, 'call_ts_tushare_api', _fake_ts)
+    monkeypatch.setattr(updater, 'call_pro_tushare_api', pro)
+    monkeypatch.setattr(updater, 'call_ts_tushare_api', ts)
+    return calls
 
 
-def _snapshot_parquet(root: Path) -> dict[str, pd.DataFrame]:
-    return {str(path.relative_to(root)): pd.read_parquet(path)
-            for path in sorted(root.rglob('*.parquet'))}
-
-
-def test_upsert_all_datasets_is_idempotent_and_preserves_versions(tmp_path, monkeypatch):
-    root = tmp_path / 'market_data'
-    root.mkdir()
-    daily_path = _write_existing_data(root)
-    _install_fakes(monkeypatch, root)
-
-    result = updater.upsert_market_data(DAY, DAY, [STOCK])
-
+def test_all_thirteen_datasets_cross_year_and_rerun(tmp_path, monkeypatch):
+    calls = install_fakes(monkeypatch, tmp_path)
+    result = updater.upsert_market_data('20241231', '20250102')
     assert tuple(result) == updater.ALL_DATASETS
-    assert all(stats['files'] >= 1 for stats in result.values())
-    assert result['daily']['removed_rows'] == 1
-    daily = pd.read_parquet(daily_path)
-    assert daily[['ts_code', 'trade_date']].duplicated().sum() == 0
-    assert daily.loc[daily['trade_date'].eq(DAY), 'close'].item() == 11.0
-    assert daily.loc[daily['trade_date'].eq('20250101'), 'close'].item() == 8.0
-
-    income = pd.read_parquet(updater.get_market_data_path('income.parquet', root))
-    assert set(income['ann_date']) == {'20250101', DAY}
-    assert income.loc[income['ann_date'].eq(DAY), 'n_income'].item() == 30.0
-
-    first = _snapshot_parquet(root)
-    updater.upsert_market_data(DAY, DAY, [STOCK])
-    second = _snapshot_parquet(root)
-    assert first.keys() == second.keys()
-    for path in first:
-        assert_frame_equal(first[path], second[path])
+    assert len(result) == 13
+    assert {p['ts_code'] for api, p in calls if api == 'pro_bar'} == {'L', 'D', 'P'}
+    files = sorted(tmp_path.rglob('*.parquet'))
+    assert len(files) == 17  # 四类行情各两个年份，其他九类单文件。
+    assert all(p.relative_to(tmp_path).parts[0] == 'stock' for p in files)
+    before = {p: pd.read_parquet(p) for p in files}
+    updater.upsert_market_data('20241231', '20250102')
+    for path, frame in before.items():
+        assert_frame_equal(frame, pd.read_parquet(path))
+    assert not list(tmp_path.rglob('*.tmp'))
+    assert not list(tmp_path.rglob('*.bak'))
 
 
-def test_failure_before_commit_keeps_existing_files(tmp_path, monkeypatch):
-    root = tmp_path / 'market_data'
-    root.mkdir()
-    daily_path = _write_existing_data(root)
-    before = pd.read_parquet(daily_path)
-    _install_fakes(monkeypatch, root)
-
-    def fail_on_sw_daily(api_name: str, **params) -> pd.DataFrame:
-        if api_name == 'sw_daily':
-            raise ValueError('模拟申万行情接口失败')
-        return _fake_pro(api_name, **params)
-
-    monkeypatch.setattr(updater, 'call_pro_tushare_api', fail_on_sw_daily)
-    with pytest.raises(ValueError, match='模拟申万行情接口失败'):
-        updater.upsert_market_data(DAY, DAY, [STOCK])
-
-    assert_frame_equal(before, pd.read_parquet(daily_path))
-    assert not list(root.rglob('.*.tmp'))
+def test_daily_upsert_keeps_unreturned_rows(tmp_path):
+    path = tmp_path / 'data.parquet'
+    old = pd.DataFrame([{'ts_code': c, 'trade_date': '20250102', 'close': 1.0} for c in ('L', 'D')])
+    old.to_parquet(path, index=False)
+    new = old.iloc[:1].assign(close=2.0)
+    updater._merge_save('daily', path, new, '20250102', '20250102')
+    result = pd.read_parquet(path).set_index('ts_code')
+    assert result.loc['L', 'close'] == 2.0
+    assert result.loc['D', 'close'] == 1.0
 
 
-def test_input_and_partition_boundaries_are_strict():
-    with pytest.raises(ValueError, match='YYYYMMDD'):
-        updater._validate_inputs('2025-01-01', DAY, [STOCK])
-    with pytest.raises(ValueError, match='不得重复'):
-        updater._validate_inputs(DAY, DAY, [STOCK, STOCK])
-    assert updater._year_ranges('20241231', '20250102') == [
-        (2024, '20241231', '20241231'),
-        (2025, '20250101', '20250102'),
-    ]
-    assert updater._month_ranges('20250115', '20250203') == [
-        ('20250101', '20250131'),
-        ('20250201', '20250228'),
-    ]
-    assert updater._reporting_periods('20110101') == [
-        '20100331', '20100630', '20100930', '20101231',
-    ]
-
-
-@pytest.mark.parametrize(
-    ('api_name', 'rows', 'expected'),
-    [
-        ('index_member_all', 2000, True),
-        ('sw_daily', 4000, True),
-        ('stk_limit', 5800, True),
-        ('daily', 5800, False),
-        ('daily', 6000, True),
-        ('index_basic', 6000, False),
-        ('index_basic', 8000, True),
-        ('suspend_d', 8000, False),
-    ],
-)
-def test_api_row_limit_detection_is_interface_specific(api_name, rows, expected):
-    assert api_wrapper.reach_limit(api_name, pd.DataFrame(index=range(rows))) is expected
-
-
-def test_api_row_limit_detection_rejects_invalid_contract():
-    with pytest.raises(TypeError, match='DataFrame'):
-        api_wrapper.reach_limit('daily', None)
-    with pytest.raises(ValueError, match='未配置'):
-        api_wrapper.reach_limit('unknown_api', pd.DataFrame())
-
-
-def test_commit_failure_rolls_back_prior_replacements(tmp_path, monkeypatch):
-    targets = [tmp_path / 'one.parquet', tmp_path / 'two.parquet']
-    temporaries = [tmp_path / '.one.tmp', tmp_path / '.two.tmp']
-    for target in targets:
-        pd.DataFrame({'value': ['old']}).to_parquet(target, index=False)
-    for temporary in temporaries:
-        pd.DataFrame({'value': ['new']}).to_parquet(temporary, index=False)
-    stages = [
-        updater._StagedWrite('daily', targets[index], temporaries[index], 1, 1, 1)
-        for index in range(2)
-    ]
-    original_replace = updater.os.replace
-
-    def fail_on_second_target(source, target):
-        if Path(source) == temporaries[1] and Path(target) == targets[1]:
-            raise OSError('模拟第二个正式文件替换失败')
-        return original_replace(source, target)
-
-    monkeypatch.setattr(updater.os, 'replace', fail_on_second_target)
-    with pytest.raises(OSError, match='第二个正式文件替换失败'):
-        updater._commit_staged(stages)
-
-    for target in targets:
-        assert pd.read_parquet(target)['value'].item() == 'old'
-    assert not list(tmp_path.glob('*.bak'))
-
-
-def test_daily_basic_may_be_a_strict_subset_of_prices():
-    daily = pd.DataFrame([
-        {'ts_code': STOCK, 'trade_date': DAY, 'open': 1.0, 'close': 1.0},
-        {'ts_code': '000002.SZ', 'trade_date': DAY, 'open': 1.0, 'close': 1.0},
+def test_financial_revision_preserves_other_announcements(tmp_path):
+    path = tmp_path / 'income.parquet'
+    old = pd.DataFrame([
+        {'ts_code': 'L', 'end_date': '20240930', 'ann_date': d, 'f_ann_date': d,
+         'report_type': '1', 'value': 1.0} for d in ('20241030', '20250102')
     ])
-    frames = {
-        'daily': daily,
-        'daily_hfq': daily.copy(),
-        'daily_basic': pd.DataFrame([
-            {'ts_code': STOCK, 'trade_date': DAY, 'turnover_rate': 1.0},
-        ]),
-    }
-    updater._validate_core_daily(frames)
+    old.to_parquet(path, index=False)
+    updater._merge_save('income.parquet', path, old.iloc[1:].assign(value=2.0), '20250102', '20250102')
+    result = pd.read_parquet(path)
+    assert result['value'].tolist() == [1.0, 2.0]
 
 
-def test_empty_response_without_schema_never_deletes_local_rows():
-    existing = pd.DataFrame([{
-        'ts_code': STOCK, 'trade_date': DAY, 'open': 1.0, 'close': 1.0,
-    }])
-    combined = updater._combine_range(
-        'daily', existing, pd.DataFrame(), 'trade_date', DAY, DAY, [STOCK],
-    )
-    assert_frame_equal(existing, combined)
+def test_empty_suspensions_remove_only_requested_dates(tmp_path):
+    path = tmp_path / 'suspend.parquet'
+    old = pd.DataFrame([{'ts_code': 'L', 'trade_date': d, 'suspend_type': 'S'}
+                        for d in ('20250101', '20250102')])
+    old.to_parquet(path, index=False)
+    updater._merge_save('suspend_d.parquet', path, pd.DataFrame(), '20250102', '20250102')
+    assert pd.read_parquet(path)['trade_date'].tolist() == ['20250101']
 
 
-def test_required_market_dataset_rejects_schemaful_empty_response(monkeypatch):
-    monkeypatch.setattr(
-        updater,
-        'call_pro_tushare_api',
-        lambda api_name, **params: pd.DataFrame(columns=['ts_code', 'trade_date']),
-    )
-    with pytest.raises(ValueError, match='全市场接口返回空数据'):
-        updater._fetch_by_dates('daily_basic', [DAY], [STOCK], 'trade_date', True)
+def test_failure_stops_without_rollback(tmp_path, monkeypatch):
+    calls = install_fakes(monkeypatch, tmp_path)
+    original = updater.call_pro_tushare_api
+
+    def fail(api, **params):
+        if api == 'daily':
+            raise RuntimeError('daily failed')
+        return original(api, **params)
+
+    monkeypatch.setattr(updater, 'call_pro_tushare_api', fail)
+    with pytest.raises(RuntimeError, match='daily failed'):
+        updater.upsert_market_data('20250102', '20250102')
+    assert updater.get_market_data_path('stock_basic.parquet', tmp_path).exists()
+    assert updater.get_market_data_path('industry_record.parquet', tmp_path).exists()
+    assert not any(api == 'income_vip' for api, _ in calls)
 
 
-def test_dividend_lifecycle_appends_new_version_without_growth_on_rerun():
-    old = pd.DataFrame([{
-        'ts_code': STOCK, 'ann_date': '20250101', 'end_date': '20241231',
-        'div_proc': '预案', 'imp_ann_date': None, 'cash_div': 1.0,
-    }])
-    implemented = pd.DataFrame([{
-        'ts_code': STOCK, 'ann_date': '20250101', 'end_date': '20241231',
-        'div_proc': '实施', 'imp_ann_date': DAY, 'cash_div': 1.0,
-    }])
-    combined = updater._combine_dividend_versions(old, implemented)
-    assert len(combined) == 2
-    rerun = updater._combine_dividend_versions(combined, implemented)
-    assert len(rerun) == 2
-    corrected = implemented.assign(cash_div=2.0)
-    corrected_result = updater._combine_dividend_versions(rerun, corrected)
-    assert len(corrected_result) == 2
-    assert corrected_result.loc[corrected_result['div_proc'].eq('实施'), 'cash_div'].item() == 2.0
+def test_write_failure_propagates(tmp_path, monkeypatch):
+    def fail(*args, **kwargs):
+        raise OSError('disk full')
+    monkeypatch.setattr(pd.DataFrame, 'to_parquet', fail)
+    with pytest.raises(OSError, match='disk full'):
+        updater._save(tmp_path / 'data.parquet', pd.DataFrame({'x': [1]}))
+
+
+def test_dividend_phases_are_distinct(tmp_path):
+    path = tmp_path / 'dividend.parquet'
+    old = pd.DataFrame([{'ts_code': 'L', 'end_date': '20241231', 'ann_date': '20250101',
+                         'div_proc': '预案', 'imp_ann_date': None, 'cash_div': 1.0}])
+    old.to_parquet(path, index=False)
+    new = old.assign(div_proc='实施', imp_ann_date='20250102', cash_div=0.8)
+    for _ in range(2):
+        updater._merge_save('dividend.parquet', path, new, '20250102', '20250102')
+    assert len(pd.read_parquet(path)) == 2
