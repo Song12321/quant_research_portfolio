@@ -88,29 +88,27 @@ def load_price_hfq(price_type,start,end):
     return df_pivot
 def load_cashflow_df():
     df = pd.read_parquet(get_market_data_path('cashflow.parquet'))
-    df['ann_date'] = pd.to_datetime(df['ann_date'])
+    df = df[(df['report_type'].astype(str) == '1') & (df['update_flag'].astype(str) == '0')].copy()
+    df['f_ann_date'] = pd.to_datetime(df['f_ann_date'])
     df['end_date'] = pd.to_datetime(df['end_date'])
-    df = df.sort_values(by=['ts_code', 'end_date', 'update_flag'], ascending=[True, True, False]).drop_duplicates(
-        subset=['ts_code', 'end_date'], keep='first')
     # 随机取5个股票的df
     # df = df[df['ts_code']. isin (['000001.SZ',
     #                           '600439.SH',
     #                           '600461.SH',
     #                           '600610.SH'])]
-    df = df[['ann_date', 'ts_code', 'end_date', 'n_cashflow_act', 'free_cashflow']]
+    df = df[['f_ann_date', 'ts_code', 'end_date', 'n_cashflow_act', 'free_cashflow']]
     return df
 
 
 def load_income_df():
     df = pd.read_parquet(get_market_data_path('income.parquet'))
-    df['ann_date'] = pd.to_datetime(df['ann_date'])
+    df = df[(df['report_type'].astype(str) == '1') & (df['update_flag'].astype(str) == '0')].copy()
+    df['f_ann_date'] = pd.to_datetime(df['f_ann_date'])
     df['end_date'] = pd.to_datetime(df['end_date'])
-    df = df.sort_values(by=['ts_code', 'end_date', 'update_flag'], ascending=[True, True, False]).drop_duplicates(
-        subset=['ts_code', 'end_date'], keep='first')
     #                                              确认过:单位:元         元
     df = df[
         [
-            'ann_date',
+            'f_ann_date',
             'ts_code',
             'end_date',
             'n_income_attr_p',
@@ -134,13 +132,12 @@ def load_fina_indicator_df():
 
 def load_balancesheet_df():
     df = pd.read_parquet(get_market_data_path('balancesheet.parquet'))
-    df['ann_date'] = pd.to_datetime(df['ann_date'])
+    df = df[(df['report_type'].astype(str) == '1') & (df['update_flag'].astype(str) == '0')].copy()
+    df['f_ann_date'] = pd.to_datetime(df['f_ann_date'])
     df['end_date'] = pd.to_datetime(df['end_date'])
-    df = df.sort_values(by=['ts_code', 'end_date', 'update_flag'], ascending=[True, True, False]).drop_duplicates(
-        subset=['ts_code', 'end_date'], keep='first')
 
     # df =  df[df['ts_code'].isin(['000001.SZ','000002.SZ','000003.SZ'])]
-    df = df[['ann_date', 'ts_code', 'end_date', 'total_hldr_eqy_exc_min_int','total_assets','total_liab']]
+    df = df[['f_ann_date', 'ts_code', 'end_date', 'total_hldr_eqy_exc_min_int','total_assets','total_liab']]
     return df
 
 

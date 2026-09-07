@@ -21,7 +21,7 @@ def _income_rows(ts_code="000001.SZ"):
         "end_date": pd.to_datetime([
             "2023-03-31", "2023-06-30", "2023-09-30", "2023-12-31", "2024-03-31",
         ]),
-        "ann_date": pd.to_datetime([
+        "f_ann_date": pd.to_datetime([
             "2023-04-20", "2023-08-15", "2023-10-31", "2024-03-20", "2024-04-27",
         ]),
         "n_income_attr_p": [10.0, 30.0, 60.0, 100.0, 50.0],
@@ -34,7 +34,7 @@ def _equity_rows(ts_code="000001.SZ"):
         "end_date": pd.to_datetime([
             "2023-03-31", "2023-06-30", "2023-09-30", "2023-12-31", "2024-03-31",
         ]),
-        "ann_date": pd.to_datetime([
+        "f_ann_date": pd.to_datetime([
             "2023-04-25", "2023-08-20", "2023-11-05", "2024-03-25", "2024-05-04",
         ]),
         "total_hldr_eqy_exc_min_int": [100.0, 900.0, 800.0, 700.0, 200.0],
@@ -92,7 +92,7 @@ def test_roe_rejects_missing_announcement_date(monkeypatch, source_name):
     income_df = _income_rows()
     equity_df = _equity_rows()
     source_df = income_df if source_name == "income" else equity_df
-    source_df.loc[source_df.index[-1], "ann_date"] = pd.NaT
+    source_df.loc[source_df.index[-1], "f_ann_date"] = pd.NaT
 
     with pytest.raises(ValueError) as exc_info:
         _calculate(monkeypatch, income_df, equity_df)
@@ -100,7 +100,7 @@ def test_roe_rejects_missing_announcement_date(monkeypatch, source_name):
     message = str(exc_info.value)
     assert "ts_code=000001.SZ" in message
     assert "end_date=2024-03-31" in message
-    assert "field=ann_date" in message
+    assert "field=f_ann_date" in message
 
 
 def test_roe_rejects_nonfinite_current_equity(monkeypatch):

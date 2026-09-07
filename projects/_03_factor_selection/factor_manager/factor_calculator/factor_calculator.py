@@ -844,7 +844,7 @@ class FactorCalculator:
         """
            【】计算滚动12个月的经营活动现金流净额 (TTM)。
            输入:
-           - cashflow_df: 原始现金流量表数据，包含['ann_date', 'ts_code', 'end_date', 'n_cashflow_act']
+           - cashflow_df: 原始现金流量表数据，包含['f_ann_date', 'ts_code', 'end_date', 'n_cashflow_act']
            - all_trading_dates: 一个包含所有交易日日期的pd.DatetimeIndex，用于构建最终的日度因子矩阵。
            输出:
            - 一个以交易日为索引(index)，股票代码为列(columns)的日度TTM因子矩阵。
@@ -1399,7 +1399,8 @@ class FactorCalculator:
                                                 factor_name: str,
                                                 data_loader_func: Callable[[], pd.DataFrame],
                                                 source_column: str,
-                                                calculation_logic_func: Callable[[pd.DataFrame, str, str], pd.DataFrame]
+                                                calculation_logic_func: Callable[[pd.DataFrame, str, str], pd.DataFrame],
+                                                availability_date_column: str = 'f_ann_date'
                                                 ) -> pd.DataFrame:
         """
         【通用季度因子引擎】根据指定的单季度财务数据和计算逻辑，延展为每日因子。
@@ -1411,20 +1412,25 @@ class FactorCalculator:
         long_df = self._get_single_q_long_df(
             data_loader_func=data_loader_func,
             source_column=source_column,
-            single_q_col_name=single_q_col
+            single_q_col_name=single_q_col,
+            availability_date_column=availability_date_column,
         )
 
         # 步骤二：应用传入的、自定义的计算逻辑
         long_df_calculated =  calculation_logic_func(long_df, single_q_col, factor_name)
 
         # 步骤三：格式化为日度因子矩阵
-        final_long_df = long_df_calculated[['ts_code', 'ann_date', 'end_date', factor_name]].dropna()
+        final_long_df = long_df_calculated[
+            ['ts_code', availability_date_column, 'end_date', factor_name]
+        ].dropna()
         if final_long_df.empty:
             raise ValueError(f"警告: 因子 '{factor_name}' 的计算逻辑没有产生任何有效数据点。")
 
-        final_long_df['ann_date'] = pd.to_datetime(final_long_df['ann_date'])
+        final_long_df[availability_date_column] = pd.to_datetime(
+            final_long_df[availability_date_column]
+        )
         final_long_df['trade_date'] = map_ann_dates_to_tradable_dates(
-            ann_dates=final_long_df['ann_date'],
+            ann_dates=final_long_df[availability_date_column],
             trading_dates=self.factor_manager.data_manager._prebuffer_trading_dates
         )
         final_long_df = final_long_df.sort_values(by=['ts_code', 'end_date'])
@@ -1546,25 +1552,25 @@ class FactorCalculator:
         ).sum().reset_index(level=0, drop=True)
 
         # --- 步骤三：格式化为日度因子矩阵 (Pivot -> Reindex -> ffill) ---
-        ttm_long_df = single_q_long_df[['ts_code', 'ann_date', 'end_date', factor_name]].dropna()#factor_name是rooling 计算出来的，因为min_periods 所以有三行nan ，在这里会被移除行
+        ttm_long_df = single_q_long_df[['ts_code', 'f_ann_date', 'end_date', factor_name]].dropna()#factor_name是rooling 计算出来的，因为min_periods 所以有三行nan ，在这里会被移除行
         if ttm_long_df.empty:
             raise ValueError(f"警告: 计算因子 {factor_name} 后没有产生任何有效的TTM数据点。")
 
         ttm_long_df = ttm_long_df.sort_values(by=['ts_code', 'end_date'])
-        ttm_long_df['ann_date'] = pd.to_datetime(ttm_long_df['ann_date'])
+        ttm_long_df['f_ann_date'] = pd.to_datetime(ttm_long_df['f_ann_date'])
         ttm_long_df['trade_date'] = map_ann_dates_to_tradable_dates(
-            ann_dates=ttm_long_df['ann_date'],
+            ann_dates=ttm_long_df['f_ann_date'],
             trading_dates = self.factor_manager.data_manager._prebuffer_trading_dates
         )
 
         ttm_wide = ttm_long_df.pivot_table(
-            index='trade_date', #以ann_date 作为索引，这是无规则的index。假设100只股票，可能同一天有发布报告的股票只有一只
+            index='trade_date', #以f_ann_date 作为索引，这是无规则的index。假设100只股票，可能同一天有发布报告的股票只有一只
             columns='ts_code',
             values=factor_name,
             aggfunc='last'
-        )#执行完之后的ttm_Wide 可能到处都是nan，原因：（以index='trade_date' （ann_date） 作为索引，这是无规则的index。假设100只股票，可能同一天有发布报告的股票只有一只）
-        # ttm_daily = (ttm_wide.reindex(self.factor_manager.data_manager._prebuffer_trading_dates) #注意 满目苍翼的ttm_wide然后还被对齐索引（截断，）从trading开始日开始截，万一刚好交易日这一天 数值为nan，那么后面ffill也是nan，直到下一个有效ann_date
-        #              .ffill()) #强化理解。ann_date [0701,0801],但传入的tradingList是0715，那么 reindex之后，就是nan ffill这个nan，跟0701ann的值矛盾！
+        )#执行完之后的ttm_Wide 可能到处都是nan，原因：（以index='trade_date' （f_ann_date） 作为索引，这是无规则的index。假设100只股票，可能同一天有发布报告的股票只有一只）
+        # ttm_daily = (ttm_wide.reindex(self.factor_manager.data_manager._prebuffer_trading_dates) #注意 满目苍翼的ttm_wide然后还被对齐索引（截断，）从trading开始日开始截，万一刚好交易日这一天 数值为nan，那么后面ffill也是nan，直到下一个有效f_ann_date
+        #              .ffill()) #强化理解。f_ann_date [0701,0801],但传入的tradingList是0715，那么 reindex之后，就是nan ffill这个nan，跟0701ann的值矛盾！
         #解决办法如下：这是解决所有财报类因子“期初NaN”问题的最终解决方案。
         ret = _broadcast_ann_date_to_daily(ttm_wide, self.factor_manager.data_manager._prebuffer_trading_dates)
 
@@ -1600,14 +1606,16 @@ class FactorCalculator:
         financial_df = data_loader_func()
 
         # 步骤一：选择数据并确保有效性
-        snapshot_long_df = financial_df[['ts_code', 'ann_date', 'end_date', source_column]].copy(deep=True)
+        snapshot_long_df = financial_df[
+            ['ts_code', 'f_ann_date', 'end_date', source_column]
+        ].copy(deep=True)
         snapshot_long_df=snapshot_long_df.dropna(inplace=False)
         if snapshot_long_df.empty:
             raise ValueError(f"警告: 计算因子 {factor_name} 时，从 {source_column} 字段未获取到有效数据。")
             # 步骤二：【核心修正】应用“公告日转交易日”模块
-        snapshot_long_df['ann_date'] = pd.to_datetime(snapshot_long_df['ann_date'])
+        snapshot_long_df['f_ann_date'] = pd.to_datetime(snapshot_long_df['f_ann_date'])
         snapshot_long_df['trade_date'] = map_ann_dates_to_tradable_dates(
-            ann_dates=snapshot_long_df['ann_date'],
+            ann_dates=snapshot_long_df['f_ann_date'],
             trading_dates=self.factor_manager.data_manager._prebuffer_trading_dates
         )
 
@@ -1657,7 +1665,8 @@ class FactorCalculator:
     def _get_single_q_long_df(self,
                               data_loader_func: Callable[[], pd.DataFrame],
                               source_column: str,
-                              single_q_col_name: str) -> pd.DataFrame:
+                              single_q_col_name: str,
+                              availability_date_column: str = 'f_ann_date') -> pd.DataFrame:
         """
                 【底层零件 - V2.0 重构版】从累计值财报数据中，计算出单季度值的长表。
                 """
@@ -1680,9 +1689,14 @@ class FactorCalculator:
         merged_df.loc[is_q1 & merged_df[source_column].notna(), single_q_col_name] = merged_df.loc[is_q1, source_column]
 
         # 步骤三：整理并返回
-        single_q_long_df = merged_df[['ts_code', 'ann_date', 'end_date', single_q_col_name]].copy()
-        # 确保公告日和计算值都存在 (ann_date在缺失的季度行为NaN)
-        single_q_long_df.dropna(subset=[single_q_col_name, 'ann_date'], inplace=True)
+        single_q_long_df = merged_df[
+            ['ts_code', availability_date_column, 'end_date', single_q_col_name]
+        ].copy()
+        # 确保实际公告日和计算值都存在（缺失季度的公告日为 NaN）
+        single_q_long_df.dropna(
+            subset=[single_q_col_name, availability_date_column],
+            inplace=True,
+        )
 
         return single_q_long_df
     #ok 能对上 聚宽数据
@@ -1970,7 +1984,8 @@ class FactorCalculator:
             factor_name='roe_change_q',
             data_loader_func=load_fina_indicator_df,
             source_column='q_roe',  # Tushare财务指标接口中的“单季度净资产收益率”
-            calculation_logic_func=self._qoq_change_logic  # 使用下方定义的通用环比计算逻辑
+            calculation_logic_func=self._qoq_change_logic,  # 使用下方定义的通用环比计算逻辑
+            availability_date_column='ann_date',
         )
 
     # === 动量类 (Momentum) 新增 ===
@@ -2057,24 +2072,24 @@ def _prepare_roe_quarter_source(
         source_df: pd.DataFrame,
         value_column: str) -> pd.DataFrame:
     """整理 ROE 所需的单一季度报表；缺值保留，非法键直接失败。"""
-    required_columns = {'ts_code', 'ann_date', 'end_date', value_column}
+    required_columns = {'ts_code', 'f_ann_date', 'end_date', value_column}
     missing_columns = required_columns.difference(source_df.columns)
     if missing_columns:
         raise ValueError(f"ROE 源数据缺少字段: {sorted(missing_columns)}")
     if source_df.empty:
         raise ValueError(f"ROE 源数据为空: {value_column}")
 
-    quarterly = source_df[['ts_code', 'ann_date', 'end_date', value_column]].copy().reset_index(drop=True)
+    quarterly = source_df[['ts_code', 'f_ann_date', 'end_date', value_column]].copy().reset_index(drop=True)
     quarterly['end_date'] = pd.to_datetime(quarterly['end_date'])
-    raw_ann_dates = quarterly['ann_date'].copy()
-    quarterly['ann_date'] = pd.to_datetime(quarterly['ann_date'], errors='coerce')
-    if quarterly['ann_date'].isna().any():
-        invalid_index = quarterly.index[quarterly['ann_date'].isna()][0]
+    raw_f_ann_dates = quarterly['f_ann_date'].copy()
+    quarterly['f_ann_date'] = pd.to_datetime(quarterly['f_ann_date'], errors='coerce')
+    if quarterly['f_ann_date'].isna().any():
+        invalid_index = quarterly.index[quarterly['f_ann_date'].isna()][0]
         invalid_row = quarterly.loc[invalid_index]
         raise ValueError(
             "ROE 源数据公告日非法: "
             f"ts_code={invalid_row['ts_code']}, end_date={invalid_row['end_date']}, "
-            f"field=ann_date, actual={raw_ann_dates.loc[invalid_index]!r}, "
+            f"field=f_ann_date, actual={raw_f_ann_dates.loc[invalid_index]!r}, "
             "expected=非空且可解析日期"
         )
     quarterly[value_column] = pd.to_numeric(quarterly[value_column]).astype(float)
@@ -2093,51 +2108,51 @@ def _prepare_roe_quarter_source(
 def _build_strict_net_profit_ttm_events(income_df: pd.DataFrame) -> pd.DataFrame:
     """用连续单季度利润计算 TTM，不跨越缺失季度。"""
     income = _prepare_roe_quarter_source(income_df, 'n_income_attr_p')
-    previous = income[['ts_code', 'quarter', 'ann_date', 'n_income_attr_p']].copy()
+    previous = income[['ts_code', 'quarter', 'f_ann_date', 'n_income_attr_p']].copy()
     previous['quarter'] = previous['quarter'] + 1
     previous = previous.rename(columns={
-        'ann_date': 'previous_ann_date',
+        'f_ann_date': 'previous_f_ann_date',
         'n_income_attr_p': 'previous_cumulative_profit',
     })
     single = income.merge(previous, on=['ts_code', 'quarter'], how='left')
     current_finite = np.isfinite(single['n_income_attr_p'])
     previous_finite = np.isfinite(single['previous_cumulative_profit'])
     is_q1 = single['end_date'].dt.month.eq(3)
-    q1_valid = is_q1 & current_finite & single['ann_date'].notna()
+    q1_valid = is_q1 & current_finite & single['f_ann_date'].notna()
     later_valid = (~is_q1) & current_finite & previous_finite
-    later_valid &= single[['ann_date', 'previous_ann_date']].notna().all(axis=1)
+    later_valid &= single[['f_ann_date', 'previous_f_ann_date']].notna().all(axis=1)
     single['single_quarter_profit'] = np.nan
     single.loc[q1_valid, 'single_quarter_profit'] = single.loc[q1_valid, 'n_income_attr_p']
     single.loc[later_valid, 'single_quarter_profit'] = (
         single.loc[later_valid, 'n_income_attr_p']
         - single.loc[later_valid, 'previous_cumulative_profit']
     )
-    single['single_quarter_ann_date'] = pd.NaT
-    single.loc[q1_valid, 'single_quarter_ann_date'] = single.loc[q1_valid, 'ann_date']
-    single.loc[later_valid, 'single_quarter_ann_date'] = single.loc[
-        later_valid, ['ann_date', 'previous_ann_date']
+    single['single_quarter_f_ann_date'] = pd.NaT
+    single.loc[q1_valid, 'single_quarter_f_ann_date'] = single.loc[q1_valid, 'f_ann_date']
+    single.loc[later_valid, 'single_quarter_f_ann_date'] = single.loc[
+        later_valid, ['f_ann_date', 'previous_f_ann_date']
     ].max(axis=1)
 
-    ttm = income[['ts_code', 'end_date', 'quarter', 'ann_date']].copy()
-    value_columns, ann_columns = [], []
+    ttm = income[['ts_code', 'end_date', 'quarter', 'f_ann_date']].copy()
+    value_columns, f_ann_columns = [], []
     for lag in range(4):
-        component = single[['ts_code', 'quarter', 'single_quarter_profit', 'single_quarter_ann_date']].copy()
+        component = single[['ts_code', 'quarter', 'single_quarter_profit', 'single_quarter_f_ann_date']].copy()
         component['quarter'] = component['quarter'] + lag
-        value_column, ann_column = f'profit_q{lag}', f'profit_q{lag}_ann_date'
+        value_column, f_ann_column = f'profit_q{lag}', f'profit_q{lag}_f_ann_date'
         component = component.rename(columns={
             'single_quarter_profit': value_column,
-            'single_quarter_ann_date': ann_column,
+            'single_quarter_f_ann_date': f_ann_column,
         })
         ttm = ttm.merge(component, on=['ts_code', 'quarter'], how='left')
         value_columns.append(value_column)
-        ann_columns.append(ann_column)
+        f_ann_columns.append(f_ann_column)
     valid = ttm[value_columns].notna().all(axis=1) & np.isfinite(ttm[value_columns]).all(axis=1)
-    valid &= ttm[ann_columns].notna().all(axis=1)
+    valid &= ttm[f_ann_columns].notna().all(axis=1)
     ttm['net_profit_ttm'] = ttm[value_columns].sum(axis=1).where(valid)
-    ttm['net_profit_ttm_ann_date'] = ttm[ann_columns].max(axis=1).where(valid)
+    ttm['net_profit_ttm_f_ann_date'] = ttm[f_ann_columns].max(axis=1).where(valid)
     return ttm[[
-        'ts_code', 'end_date', 'quarter', 'ann_date',
-        'net_profit_ttm', 'net_profit_ttm_ann_date',
+        'ts_code', 'end_date', 'quarter', 'f_ann_date',
+        'net_profit_ttm', 'net_profit_ttm_f_ann_date',
     ]]
 
 
@@ -2148,38 +2163,38 @@ def _build_roe_quarter_events(
     profit = _build_strict_net_profit_ttm_events(income_df)
     equity = _prepare_roe_quarter_source(equity_df, 'total_hldr_eqy_exc_min_int')
     current_equity = equity.rename(columns={
-        'ann_date': 'current_equity_ann_date',
+        'f_ann_date': 'current_equity_f_ann_date',
         'total_hldr_eqy_exc_min_int': 'current_equity',
-    })[['ts_code', 'quarter', 'current_equity_ann_date', 'current_equity']]
+    })[['ts_code', 'quarter', 'current_equity_f_ann_date', 'current_equity']]
     current_equity['_current_equity_record'] = True
     lagged_equity = equity.rename(columns={
-        'ann_date': 'lagged_equity_ann_date',
+        'f_ann_date': 'lagged_equity_f_ann_date',
         'total_hldr_eqy_exc_min_int': 'lagged_equity',
-    })[['ts_code', 'quarter', 'lagged_equity_ann_date', 'lagged_equity']]
+    })[['ts_code', 'quarter', 'lagged_equity_f_ann_date', 'lagged_equity']]
     lagged_equity['quarter'] = lagged_equity['quarter'] + 4
     events = profit.merge(current_equity, on=['ts_code', 'quarter'], how='left')
     events = events.merge(lagged_equity, on=['ts_code', 'quarter'], how='left')
     _validate_current_roe_equity(events)
 
     value_columns = ['net_profit_ttm', 'current_equity', 'lagged_equity']
-    ann_columns = [
-        'net_profit_ttm_ann_date', 'current_equity_ann_date', 'lagged_equity_ann_date'
+    f_ann_columns = [
+        'net_profit_ttm_f_ann_date', 'current_equity_f_ann_date', 'lagged_equity_f_ann_date'
     ]
     valid = events[value_columns].notna().all(axis=1)
     valid &= np.isfinite(events[value_columns]).all(axis=1)
-    valid &= events[ann_columns].notna().all(axis=1)
+    valid &= events[f_ann_columns].notna().all(axis=1)
     average_equity = (events['current_equity'] + events['lagged_equity']) / 2
     valid &= np.isfinite(average_equity) & average_equity.gt(0)
     roe_ttm = events['net_profit_ttm'] / average_equity
     valid &= np.isfinite(roe_ttm)
     events['roe_ttm'] = roe_ttm.where(valid)
-    valid_ann_date = events[ann_columns].max(axis=1)
-    complete_ann_dates = events[ann_columns].notna().all(axis=1)
-    current_ann_columns = ['ann_date', 'current_equity_ann_date']
-    current_reports_available = events[current_ann_columns].notna().all(axis=1)
-    invalid_ann_date = events[current_ann_columns].max(axis=1).where(current_reports_available)
-    events['available_ann_date'] = valid_ann_date.where(complete_ann_dates, invalid_ann_date)
-    return events[['ts_code', 'end_date', 'roe_ttm', 'available_ann_date']]
+    valid_f_ann_date = events[f_ann_columns].max(axis=1)
+    complete_f_ann_dates = events[f_ann_columns].notna().all(axis=1)
+    current_f_ann_columns = ['f_ann_date', 'current_equity_f_ann_date']
+    current_reports_available = events[current_f_ann_columns].notna().all(axis=1)
+    invalid_f_ann_date = events[current_f_ann_columns].max(axis=1).where(current_reports_available)
+    events['available_f_ann_date'] = valid_f_ann_date.where(complete_f_ann_dates, invalid_f_ann_date)
+    return events[['ts_code', 'end_date', 'roe_ttm', 'available_f_ann_date']]
 
 
 def _validate_current_roe_equity(events: pd.DataFrame) -> None:
@@ -2210,9 +2225,9 @@ def _broadcast_roe_events_to_daily(
     """广播 ROE 事件；无效新报告的 NaN 会显式终止旧值。"""
     trading_dates = pd.DatetimeIndex(trading_dates).sort_values()
     daily = pd.DataFrame(np.nan, index=trading_dates, columns=stock_codes, dtype=float)
-    mapped = roe_events.dropna(subset=['available_ann_date']).copy()
+    mapped = roe_events.dropna(subset=['available_f_ann_date']).copy()
     mapped['trade_date'] = map_ann_dates_to_tradable_dates(
-        mapped['available_ann_date'], trading_dates
+        mapped['available_f_ann_date'], trading_dates
     )
     mapped = mapped.dropna(subset=['trade_date'])
     mapped = mapped.sort_values(['ts_code', 'end_date']).drop_duplicates(
@@ -2234,13 +2249,13 @@ def _broadcast_ann_date_to_daily(
                                  sparse_wide_df: pd.DataFrame,
                                  trading_dates: pd.DatetimeIndex) -> pd.DataFrame:
     """
-    【核心通用工具】将一个基于稀疏公告日(ann_date)的宽表，
+    【核心通用工具】将一个基于稀疏实际公告日(f_ann_date)的宽表，
     安全地广播并填充到一个密集的交易日历上。
 
     这是解决所有财报类因子“期初NaN”问题的最终解决方案。
 
     Args:
-        sparse_wide_df (pd.DataFrame): 以ann_date为索引的稀疏宽表。
+        sparse_wide_df (pd.DataFrame): 以f_ann_date映射出的交易日为索引的稀疏宽表。
         trading_dates (pd.DatetimeIndex): 目标交易日历。
 
     Returns:
