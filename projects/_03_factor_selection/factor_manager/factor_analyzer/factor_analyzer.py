@@ -24,6 +24,7 @@ from quant_lib.evaluation.evaluation import (
 )
 
 
+# 执行 prepare_industry_dummies 对应逻辑。
 def prepare_industry_dummies(
     pit_map: PointInTimeIndustryMap,
     trade_dates: pd.DatetimeIndex,
@@ -61,6 +62,7 @@ def prepare_industry_dummies(
 class FactorAnalyzer:
     """运行正式的 processed 因子有效性研究。"""
 
+    # 执行 __init__ 对应逻辑。
     def __init__(self, factor_manager):
         if factor_manager is None or factor_manager.data_manager is None:
             raise ValueError("FactorAnalyzer 必须传入已绑定 DataManager 的 FactorManager")
@@ -73,6 +75,7 @@ class FactorAnalyzer:
         self.factor_processor = FactorProcessor(self.config)
         self.factor_results_manager = FactorResultsManager()
 
+    # 执行 test_ic_analysis 对应逻辑。
     def test_ic_analysis(
         self,
         factor_data: pd.DataFrame,
@@ -88,6 +91,7 @@ class FactorAnalyzer:
             min_stocks=30,
         )
 
+    # 执行 test_quantile_backtest 对应逻辑。
     def test_quantile_backtest(
         self,
         factor_data: pd.DataFrame,
@@ -103,6 +107,7 @@ class FactorAnalyzer:
         )
         return quantile_stats_result(period_returns, self.n_quantiles)
 
+    # 执行 test_turnover_result 对应逻辑。
     def test_turnover_result(self, factor_data: pd.DataFrame) -> dict:
         turnover_by_period = calculate_top_quantile_turnover_dict(
             factor_df=factor_data,
@@ -117,6 +122,7 @@ class FactorAnalyzer:
             for period, series in turnover_by_period.items()
         }
 
+    # 执行 analyze_processed_factor 对应逻辑。
     def analyze_processed_factor(
         self,
         factor_name: str,
@@ -156,6 +162,7 @@ class FactorAnalyzer:
             "top_q_turnover_stats_periods_dict": self.test_turnover_result(processed),
         }
 
+    # 执行 _process_single_factor 对应逻辑。
     def _process_single_factor(
         self,
         factor_name: str,
@@ -177,6 +184,7 @@ class FactorAnalyzer:
             need_standardize=True,
         )
 
+    # 执行 prepare_data_for_process_factor 对应逻辑。
     def prepare_data_for_process_factor(
         self,
         factor_name: str,
@@ -227,6 +235,7 @@ class FactorAnalyzer:
             )
         return neutral_dfs, style_category
 
+    # 执行 prepare_data_for_entity_service 对应逻辑。
     def prepare_data_for_entity_service(
         self, factor_name: str, stock_pool_name: str
     ) -> tuple[pd.DataFrame, bool, str, str, str, dict]:
@@ -267,6 +276,7 @@ class FactorAnalyzer:
             {name: calculators[name] for name in configured_calculators},
         )
 
+    # 执行 test_factor_entity_service_route 对应逻辑。
     def test_factor_entity_service_route(
         self, factor_name: str, stock_pool_index_name: str
     ) -> Dict[str, dict]:

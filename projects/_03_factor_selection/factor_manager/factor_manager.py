@@ -47,6 +47,7 @@ class FactorResultsManager:
         "fm_returns_series_*.parquet",
     )
 
+    # 执行 __init__ 对应逻辑。
     def __init__(self,
                  **kwargs):
 
@@ -55,6 +56,7 @@ class FactorResultsManager:
         for key, value in kwargs.items():
             setattr(self, key, value)
 
+    # 执行 to_dict 对应逻辑。
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         return {k: v for k, v in self.__dict__.items()}
@@ -64,6 +66,7 @@ class FactorResultsManager:
         """从字典创建"""
         return cls(**data)
 
+    # 执行 _save_factor_results 对应逻辑。
     def _save_factor_results(self,
                              factor_name: str,
                              stock_index: str,  # 比如中证800
@@ -80,6 +83,7 @@ class FactorResultsManager:
         self._save_result_frames(output_path, results)
         logger.info(f"✓ 因子'{factor_name}'在配置'{returns_calculator_func_name}'下的所有结果已保存至: {output_path}")
 
+    # 执行 _validate_result_contract 对应逻辑。
     def _validate_result_contract(self, results: Dict) -> None:
         missing_keys = self.RESULT_KEYS - results.keys()
         if missing_keys:
@@ -88,6 +92,7 @@ class FactorResultsManager:
         if unexpected_keys:
             raise ValueError(f"processed 因子研究结果包含多余字段: {sorted(unexpected_keys)}")
 
+    # 执行 _reject_legacy_artifacts 对应逻辑。
     def _reject_legacy_artifacts(self, output_path: Path) -> None:
         legacy_files = sorted(
             path.name
@@ -100,6 +105,7 @@ class FactorResultsManager:
                 f"path={output_path}, files={legacy_files}"
             )
 
+    # 执行 _save_summary 对应逻辑。
     def _save_summary(self, output_path: Path, results: Dict) -> None:
         summary_stats = {
             'ic_analysis_processed': results["ic_stats_periods_dict_processed"],
@@ -128,6 +134,7 @@ class FactorResultsManager:
             output_path / 'q_daily_returns_df_processed.parquet'
         )
 
+    # 执行 _make_serializable 对应逻辑。
     def _make_serializable(self, obj):
         """将结果转换为可序列化格式"""
         if isinstance(obj, dict):
@@ -157,6 +164,7 @@ class FactorResultsManager:
 class FactorManager:
     """因子管理器类"""
 
+    # 执行 __init__ 对应逻辑。
     def __init__(self,
                  data_manager: DataManager = None,
                  results_dir: str = Path(__file__).parent.parent / "workspace/factor_results",
@@ -193,6 +201,7 @@ class FactorManager:
 
         logger.info("因子管理器初始化完成")
 
+    # 执行 clear_cache 对应逻辑。
     def clear_cache(self):
         """
         清理因子缓存
@@ -203,6 +212,7 @@ class FactorManager:
         self.data_manager.clear_temporary_raw_fields()
         logger.info(f"因子缓存已清理，释放了 {cache_size} 个缓存项")
 
+    # 执行 store_inner_resolved_direction 对应逻辑。
     def store_inner_resolved_direction(self, factor_name: str, direction: int) -> None:
         """保存本次 Inner 已完成因子的冻结方向。"""
         if not isinstance(factor_name, str) or not factor_name:
@@ -213,6 +223,7 @@ class FactorManager:
             raise ValueError(f"Inner 方向写入失败：因子 {factor_name} 已存在")
         self.inner_resolved_directions[factor_name] = direction
 
+    # 执行 get_inner_resolved_direction 对应逻辑。
     def get_inner_resolved_direction(self, factor_name: str) -> int:
         """读取本次 Inner 已冻结方向；禁止使用历史或默认方向。"""
         try:
@@ -220,6 +231,7 @@ class FactorManager:
         except KeyError as error:
             raise ValueError(f"合成因子缺少本次 Inner 子因子方向：factor={factor_name}") from error
 
+    # 执行 get_cache_info 对应逻辑。
     def get_cache_info(self) -> Dict[str, Any]:
         """
         获取缓存信息
@@ -295,6 +307,7 @@ class FactorManager:
         self.factors_cache[factor_request] = raw_factor_df #排查问题中 先关了
         return raw_factor_df.copy(deep=True)
 
+    # 执行 register_factor 对应逻辑。
     def register_factor(self,
                         name: str,
                         category: Union[str, FactorCategory],
@@ -322,10 +335,12 @@ class FactorManager:
             **kwargs
         )
 
+    # 执行 get_factor_metadata 对应逻辑。
     def get_factor_metadata(self, name: str) -> Optional[FactorMetadata]:
         """获取因子元数据"""
         return self.registry.get_factor(name)
 
+    # 执行 list_factors 对应逻辑。
     def list_factors(self,
                      category: Union[str, FactorCategory] = None) -> List[str]:
         """
@@ -339,10 +354,12 @@ class FactorManager:
         """
         return self.registry.list_factors(category)
 
+    # 执行 get_factor_summary 对应逻辑。
     def get_factor_summary(self) -> pd.DataFrame:
         """获取因子摘要"""
         return self.registry.get_factor_summary()
 
+    # 执行 get_test_result 对应逻辑。
     def get_test_result(self, factor_name: str) -> Optional[FactorResultsManager]:
         """
         获取测试结果
@@ -383,6 +400,7 @@ class FactorManager:
             logger.error(f"加载测试结果失败: {e}")
             return None
 
+    # 执行 classify_factor 对应逻辑。
     def classify_factor(self,
                         factor_data: pd.DataFrame,
                         returns_data: pd.DataFrame = None) -> FactorCategory:
@@ -398,6 +416,7 @@ class FactorManager:
         """
         return self.classifier.classify_factor(factor_data, returns_data)
 
+    # 执行 analyze_factor_correlation 对应逻辑。
     def analyze_factor_correlation(self,
                                    factor_data_dict: Dict[str, pd.DataFrame],
                                    figsize: Tuple[int, int] = (12, 10)) -> Tuple[pd.DataFrame, Any]:
@@ -413,6 +432,7 @@ class FactorManager:
         """
         return self.classifier.analyze_factor_correlation(factor_data_dict, figsize)
 
+    # 执行 cluster_factors 对应逻辑。
     def cluster_factors(self,
                         factor_data_dict: Dict[str, pd.DataFrame],
                         n_clusters: int = 5) -> Dict[str, int]:
@@ -428,6 +448,7 @@ class FactorManager:
         """
         return self.classifier.cluster_factors(factor_data_dict, n_clusters)
 
+    # 执行 visualize_factor_clusters 对应逻辑。
     def visualize_factor_clusters(self,
                                   factor_data_dict: Dict[str, pd.DataFrame],
                                   n_clusters: int = 5,
@@ -449,10 +470,12 @@ class FactorManager:
             factor_data_dict, n_clusters, method, figsize
         )
 
+    # 执行 get_top_factors 对应逻辑。
     def get_top_factors(self):
 
         return None
 
+    # 执行 _make_serializable 对应逻辑。
     def _make_serializable(self, obj):
         """将结果转换为可序列化格式"""
         if isinstance(obj, dict):
@@ -494,6 +517,7 @@ class FactorManager:
             except:
                 return str(obj)
 
+    # 执行 _save_results 对应逻辑。
     def _save_results(self, results: Dict[str, Any], file_name_prefix: str) -> None:
         """保存测试结果"""
         # 准备可序列化的结果
@@ -565,6 +589,7 @@ class FactorManager:
             print(f"❌ 保存结果时发生错误: {e}")
             raise e  # 重新抛出异常，让上层知道发生了错误
 
+    # 执行 update_and_save_fm_factor_return_matrix 对应逻辑。
     def update_and_save_fm_factor_return_matrix(self, new_fm_factor_returns_dict: dict, file_name_prefix: str):
         """
         【新】更新或创建统一的因子收益矩阵文件。
@@ -680,6 +705,7 @@ class FactorManager:
             logger.info(f"{factor_request}: 因子数据shift到T-1，用于交易决策")
             return factor_with_direction.shift(1)
 
+    # 执行 _get_factor_time_alignment 对应逻辑。
     def _get_factor_time_alignment(self, factor_name: str) -> str:
         """
         【智能配置查找】获取因子的时间对齐配置
@@ -712,6 +738,7 @@ class FactorManager:
         # 3. 默认处理：传统因子需要shift
         return 'shift'
 
+    # 执行 get_prepare_aligned_factor_for_analysis 对应逻辑。
     def get_prepare_aligned_factor_for_analysis(self, factor_request: Union[str, tuple], stock_pool_index_name,
                                                 for_test):
         """
@@ -731,6 +758,7 @@ class FactorManager:
         FactorManager._validate_data_quality(ret, REQUEST, des='原生数据最终完全对齐股票池之后')
         return ret
 
+    # 执行 align_factor_with_pool 对应逻辑。
     def align_factor_with_pool(self, factor_data: pd.DataFrame, factor_request: Union[str, tuple],
                                stock_pool_index_name: str):
         """
@@ -769,6 +797,7 @@ class FactorManager:
     #         return INDEX_CODES['ALL_A']
     #     return index_filter_config['index_code']
 
+    # 执行 get_style_category 对应逻辑。
     def get_style_category(self, factor_name):
         return self.data_manager.get_factor_definition(factor_name)['style_category'].iloc[0]
 

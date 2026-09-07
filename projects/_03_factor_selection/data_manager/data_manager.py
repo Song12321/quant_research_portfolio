@@ -43,6 +43,7 @@ warnings.filterwarnings('ignore')
 logger = setup_logger(__name__)
 
 
+# 执行 check_field_level_completeness 对应逻辑。
 def check_field_level_completeness(raw_df: Dict[str, pd.DataFrame]):
     dfs = raw_df.copy()
     logger.info("原始字段缺失率体检报告:")
@@ -67,6 +68,7 @@ def check_field_level_completeness(raw_df: Dict[str, pd.DataFrame]):
             logger.info(f'\t{tip}')
 
 
+# 执行 _get_nan_comment 对应逻辑。
 def _get_nan_comment(field: str, rate: float):
     logger.info(f"field：{field}在原始raw_df 确实占比为：{rate}")
     if field in ['delist_date']:
@@ -119,6 +121,7 @@ class DataManager:
 
     RESIDENT_RAW_FIELDS = ('close_hfq', 'circ_mv', 'turnover_rate', 'list_date')
 
+    # 执行 __init__ 对应逻辑。
     def __init__(self, config_path: str=config_yaml_path, experiments_config_path: str=experiments_yaml_path, need_data_deal: bool = True):
         """
         初始化数据管理器
@@ -149,6 +152,7 @@ class DataManager:
             if self._requires_index_component_loader():
                 self.component_loader = IndexComponentLoader()
 
+    # 执行 _requires_index_component_loader 对应逻辑。
     def _requires_index_component_loader(self) -> bool:
         pool_profiles = self.config['stock_pool_profiles']
         return any(
@@ -156,6 +160,7 @@ class DataManager:
             for pool_name in self.get_experiments_pool_names()
         )
 
+    # 执行 _resolve_buffer_start_date 对应逻辑。
     def _resolve_buffer_start_date(self) -> str:
         factor_days = [
             self._get_factor_preheat_trading_days(name, set())
@@ -181,6 +186,7 @@ class DataManager:
         )
         return buffer_start.strftime('%Y%m%d')
 
+    # 执行 _get_factor_preheat_trading_days 对应逻辑。
     def _get_factor_preheat_trading_days(self, factor_name: str, ancestors: set[str]) -> int:
         if factor_name in ancestors:
             raise ValueError(f"复合因子依赖存在循环: factor={factor_name}")
@@ -210,6 +216,7 @@ class DataManager:
             )
         return int(preheat_days)
 
+    # 执行 prepare_basic_data 对应逻辑。
     def prepare_basic_data(self) -> Dict[str, pd.DataFrame]:
         """
         优化的两阶段数据处理流水线（只加载一次数据）
@@ -235,6 +242,7 @@ class DataManager:
         self._build_stock_pools_from_loaded_data(self.research_start_date, self.research_end_date)
         # 强行检查一下数据！完整率！ 不应该在这里检查！，太晚了， 已经被stock_pool_df 动了手脚了（低市值的会被置为nan，
 
+    # 执行 can_load_raw_field 对应逻辑。
     def can_load_raw_field(self, field_name: str) -> bool:
         """判断字段是否已就绪或有明确的本地数据源。"""
         if not isinstance(field_name, str) or not field_name:
@@ -245,6 +253,7 @@ class DataManager:
             field_name in self.data_loader.field_map
         )
 
+    # 执行 get_raw_field 对应逻辑。
     def get_raw_field(self, field_name: str) -> pd.DataFrame:
         """按当前研究窗口临时加载原始字段，并对齐到常驻价格网格。"""
         if not self.can_load_raw_field(field_name):
@@ -272,6 +281,7 @@ class DataManager:
         self.temporary_raw_dfs[field_name] = aligned_df
         return aligned_df
 
+    # 执行 clear_temporary_raw_fields 对应逻辑。
     def clear_temporary_raw_fields(self) -> None:
         """释放当前因子临时读取的原始宽表。"""
         cleared_count = len(self.temporary_raw_dfs)
@@ -302,6 +312,7 @@ class DataManager:
 
         self.build_diff_stock_pools()
 
+    # 执行 build_diff_stock_pools 对应逻辑。
     def build_diff_stock_pools(self):
         stock_pool_df_dict = {}
         stock_pool_profiles = self.config['stock_pool_profiles']
@@ -317,6 +328,7 @@ class DataManager:
     # microstructure_profile = stock_pool_profiles['microstructure_profile']#用于 微观（量价/情绪）因子
     # product_universe =self.product_universe (microstructure_profile,trading_dates)
 
+    # 执行 _check_data_quality 对应逻辑。
     def _check_data_quality(self):
         """检查数据质量"""
         print("  检查数据完整性和质量...")
@@ -392,6 +404,7 @@ class DataManager:
         # 缓存起来，因为它在一次回测中是不变的
         self._existence_matrix = existence_matrix
 
+    # 执行 build_tradeable_matrix_by_suspend_resume 对应逻辑。
     def build_tradeable_matrix_by_suspend_resume(
             self,
     ) -> pd.DataFrame:
@@ -746,6 +759,7 @@ class DataManager:
     #
     #     return stock_pool_df
 
+    # 执行 _load_dynamic_index_components 对应逻辑。
     def _load_dynamic_index_components(self, index_code: str,
                                        start_date: str, end_date: str) -> pd.DataFrame:
         """加载动态指数成分股数据"""
@@ -821,20 +835,24 @@ class DataManager:
         self.show_stock_nums_for_per_day(f'by_成分股指数_filter{index_code}', index_stock_pool_df)
         return index_stock_pool_df
 
+    # 执行 get_universe 对应逻辑。
     def get_universe(self) -> pd.DataFrame:
         """获取股票池"""
         return self.stock_pool_df
 
+    # 执行 get_stock_codes 对应逻辑。
     def get_stock_codes(self) -> pd.DataFrame:
         first_df = next(iter(self.raw_dfs.values()))  # 取第一个 DataFrame
         return first_df.columns.tolist()
 
+    # 执行 get_namechange_data 对应逻辑。
     def get_namechange_data(self) -> pd.DataFrame:
         """获取name改变的数据"""
         namechange_path = get_market_data_path('namechange.parquet')
 
         return pd.read_parquet(namechange_path)
 
+    # 执行 save_data_summary 对应逻辑。
     def save_data_summary(self, output_dir: str):
         """保存数据摘要"""
         os.makedirs(output_dir, exist_ok=True)
@@ -873,6 +891,7 @@ class DataManager:
 
         print(f"数据摘要已保存到: {summary_path}")
 
+    # 执行 show_stock_nums_for_per_day 对应逻辑。
     def show_stock_nums_for_per_day(self, describe_text, pool_df):
         daily_count = pool_df.sum(axis=1)
         logger.info(f"    {describe_text}动态股票池:")
@@ -885,6 +904,7 @@ class DataManager:
         coverage = valid_cells / total_cells if total_cells > 0 else 0
         logger.info(f"  {describe_text}: 后形状 {pool_df.shape}, 为true状态股票覆盖度 {coverage:.1%}")
 
+    # 执行 get_cal_require_base_fields_for_composite 对应逻辑。
     def get_cal_require_base_fields_for_composite(self, name):
         factor_config = self.get_factor_definition(name)
         if factor_config.empty:
@@ -967,25 +987,31 @@ class DataManager:
         #     stock_codes.append('003017.SZ')
         return final_stock_pool_df
 
+    # 执行 get_which_field_of_factor_definition_by_factor_name 对应逻辑。
     def get_which_field_of_factor_definition_by_factor_name(self, factor_name, which_field):
         cur_factor_definition = self.get_factor_definition(factor_name)
         return cur_factor_definition[which_field]
 
+    # 执行 get_factor_definition_df 对应逻辑。
     def get_factor_definition_df(self):
         return pd.DataFrame(self.config['factor_definition'])
 
+    # 执行 is_composite_factor 对应逻辑。
     def is_composite_factor(self, factor_name):
         factor_config = self.get_factor_definition(factor_name)
         if factor_config.empty:
             raise ValueError(f"factor_definition 中不存在因子: {factor_name}")
         return factor_config['action'].iloc[0] == 'composite'
 
+    # 执行 get_pool_profiles 对应逻辑。
     def get_pool_profiles(self):
         return self.config['stock_pool_profiles']
 
+    # 执行 get_pool_profile_by_pool_name 对应逻辑。
     def get_pool_profile_by_pool_name(self, pool_name):
         return self.get_pool_profiles()[pool_name]
 
+    # 执行 get_stock_pool_storage_name_by_name 对应逻辑。
     def get_stock_pool_storage_name_by_name(self, name):
         """结果存储使用指数代码；未启用指数过滤时使用股票池名称。"""
         profile = self.get_pool_profile_by_pool_name(name)
@@ -994,6 +1020,7 @@ class DataManager:
             return name
         return self.get_stock_pool_index_code_by_name(name)
 
+    # 执行 get_stock_pool_index_code_by_name 对应逻辑。
     def get_stock_pool_index_code_by_name(self, name):
         index_filter = self.get_pool_profile_by_pool_name(name)['index_filter']
         index_code = index_filter.get('index_code')
@@ -1003,29 +1030,36 @@ class DataManager:
             )
         return index_code
 
+    # 执行 get_factor_definition 对应逻辑。
     def get_factor_definition(self, factor_name):
         all_df = self.get_factor_definition_df()
         return all_df[all_df['name'] == factor_name]
 
+    # 执行 get_target_factors_for_evaluation 对应逻辑。
     def get_target_factors_for_evaluation(self):
         namelists = list(self.experiments_config.keys())
         return namelists
 
+    # 执行 get_experiments_factor_names 对应逻辑。
     def get_experiments_factor_names(self):
         return list(pd.DataFrame(self.get_experiments_df())['factor_name'].unique())
 
+    # 执行 get_experiments_pool_names 对应逻辑。
     def get_experiments_pool_names(self):
         return list(pd.DataFrame(self.get_experiments_df())['stock_pool_name'].unique())
 
+    # 执行 get_experiments_df 对应逻辑。
     def get_experiments_df(self):
         df = pd.DataFrame(self.experiments_config)
         return df.drop_duplicates(inplace=False)
 
+    # 执行 get_need_product_pool_name 对应逻辑。
     def get_need_product_pool_name(self):
         self.get_experiments_factor_names()
         pass
 
 
+# 执行 fill_self 对应逻辑。
 def fill_self(factor_name, df, _existence_matrix):
     # 步骤2: 根据配置字典，应用填充策略
     # =================================================================
@@ -1076,6 +1110,7 @@ def fill_and_align_by_stock_pool(factor_name=None, df=None,
     return my_align(df, stock_pool_df)
 
 
+# 执行 my_align 对应逻辑。
 def my_align(df, stock_pool_df):
     # 步骤1: 对齐到修剪后的股票池 对齐到主模板（stock_pool_df的形状）
     aligned_df = df.reindex(index=stock_pool_df.index, columns=stock_pool_df.columns)
@@ -1084,6 +1119,7 @@ def my_align(df, stock_pool_df):
     return aligned_df
 
 
+# 执行 create_data_manager 对应逻辑。
 def create_data_manager(config_path: str) -> DataManager:
     """
     创建数据管理器实例
