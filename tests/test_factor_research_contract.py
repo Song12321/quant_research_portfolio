@@ -264,7 +264,7 @@ def test_inner_direction_uses_non_overlapping_sample_weights(tmp_path):
     saved = yaml.safe_load(output_path.read_text(encoding="utf-8"))["factors"]["factor"]
     assert direction == 1
     assert saved["direction_score"] == pytest.approx(0.1 / 15)
-    assert saved["ic_valid_days_by_period"] == {"5d": 8, "10d": 4, "20d": 2, "40d": 1}
+    assert "ic_valid_days_by_period" not in saved
     assert saved["direction_weight_by_period"] == pytest.approx(
         {"5d": 8 / 15, "10d": 4 / 15, "20d": 2 / 15, "40d": 1 / 15}
     )

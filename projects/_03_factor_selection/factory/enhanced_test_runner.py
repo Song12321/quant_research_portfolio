@@ -129,7 +129,6 @@ class EnhancedTestRunner:
         config["direction_output_file"] = str(self.direction_output_path)
         config["description"] = description
         self._validate_composite_dependencies(experiments, definitions)
-        self._validate_direction_target(experiments)
         return config
 
     def _store_direction(self, factor_name: str, research_result: dict, config: dict) -> int:
@@ -217,15 +216,6 @@ class EnhancedTestRunner:
             raise ValueError(f"inner.yaml 缺少非空路径字段: {key}")
         return (self.research_config_path.parent / value).resolve()
 
-    def _validate_direction_target(self, experiments: list[dict]) -> None:
-        # 校验方向输出文件结构并禁止重复覆盖已存在的因子方向记录。
-        document = self._load_yaml_mapping(self.direction_output_path)
-        factors = document.get("factors")
-        if not isinstance(factors, dict) or set(document) != {"factors"}:
-            raise ValueError(f"方向配置结构非法: path={self.direction_output_path}")
-        duplicates = sorted(row["factor_name"] for row in experiments if row["factor_name"] in factors)
-        if duplicates:
-            raise ValueError(f"Inner 因子方向已存在，禁止覆盖: factors={duplicates}")
 
     @staticmethod
     def _validate_composite_dependencies(experiments: list[dict], definitions: list[dict]) -> None:

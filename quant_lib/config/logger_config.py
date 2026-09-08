@@ -1,4 +1,5 @@
 import logging
+import os
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
@@ -47,7 +48,8 @@ def setup_logger(
     Path(log_dir).mkdir(parents=True, exist_ok=True)
 
     # 定义日志文件名
-    log_file = Path(log_dir) / f"{logger_name}.log"
+    # 每个进程独立写入，避免 Windows 下轮转重命名被其他进程占用。
+    log_file = Path(log_dir) / f"{logger_name}.{os.getpid()}.log"
 
     # 使用 TimedRotatingFileHandler 实现日志按天轮转
     # when='D': 按天轮转; interval=1: 每天一个新文件

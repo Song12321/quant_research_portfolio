@@ -138,7 +138,6 @@ def resolve_and_store_inner_direction(
         "direction": direction,
         "direction_score": direction_score,
         "ic_mean_by_period": means,
-        "ic_valid_days_by_period": valid_days,
         "direction_weight_by_period": weights,
         "inner_run_id": inner_run_id,
     }
