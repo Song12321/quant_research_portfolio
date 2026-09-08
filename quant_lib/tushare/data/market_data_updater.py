@@ -101,23 +101,34 @@ def _merge_save(dataset: str, path: Path, new: pd.DataFrame,
 
 
 def _update(dataset: str, start: str, end: str, symbols: list[str]) -> int:
+    # 返回本次拉取的行数，不是去重后的行数，也不是相对旧文件净新增的行数。
     new = _fetch(dataset, start, end, symbols)
     path = get_market_data_path(dataset, MARKET_DATA_ROOT)
+    # 普通表返回空时保留旧文件；行业表拉取的是全市场完整历史，空结果视为异常。
+    # 停牌表不能在这里跳过：即使本次没有事件，也要在 _merge_save 中清除
+    # [start, end] 内的旧事件，用本次查询结果替换这段日期范围。
     if new.empty and dataset != 'suspend_d.parquet':
         if dataset == 'industry_record.parquet':
             raise ValueError('industry_record: 全市场行业历史返回空，停止更新')
         return 0
+    # 只转换已约定存为 datetime 的列，保持各表现有格式；未配置的表不做转换。
     for column in _DATETIMES.get(dataset, ()):
         new[column] = pd.to_datetime(new[column], format='%Y%m%d')
     if dataset == 'industry_record.parquet':
+        # _fetch 不按 start/end 截取行业记录，而是逐股拉取历史和当前成员记录。
+        # 因此整表去重后覆盖保存，让旧记录的退出日期等信息随本次结果刷新。
         _save(path, new.drop_duplicates())
         return len(new)
     if dataset in _DAILY:
         # 保持现有年份分区和后复权日期类型。
+        # 临时解析 trade_date 只用于分组，不回写该列；后复权日期已在上面转换。
+        # 每个年份只读取、合并并保存对应文件，未涉及的年份文件保持原样。
         years = pd.to_datetime(new['trade_date'], format='%Y%m%d').dt.year
         for year, part in new.groupby(years):
             _merge_save(dataset, path / f'year={year}' / 'data.parquet', part, start, end)
         return len(new)
+    # 其余表存为单文件：普通表按 _KEYS 去重，同键以新记录覆盖旧记录，
+    # 本次未返回的旧记录保留；停牌表则按上面说明替换指定日期范围。
     return _merge_save(dataset, path, new, start, end)
 
 

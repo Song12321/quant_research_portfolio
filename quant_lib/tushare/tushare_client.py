@@ -1,6 +1,10 @@
 import tushare as ts
+from tushare.pro.client import DataApi
 
 from quant_lib.tushare.tushare_token_manager.token_manager import load_token_from_local, refresh_token
+
+# Pro 客户端和 ts.pro_bar 内部创建的客户端使用同一个代理地址。
+DataApi._DataApi__http_url = "https://t.xiaodefa.top/dataapi"
 
 ##
 #
@@ -15,7 +19,7 @@ class TushareClient:
         if cls._pro is None:
             token = load_token_from_local()
             if not token:
-                raise ConnectionError("Token未在token.txt中配置，无法初始化API。")
+                raise ConnectionError("本地缓存未配置 Token，无法初始化 API。")
             print("正在初始化Tushare API实例...")
             cls._pro = ts.pro_api(token)
             print("Tushare API实例初始化成功。")
@@ -27,7 +31,7 @@ class TushareClient:
         if cls._ts is None:
             token = load_token_from_local()
             if not token:
-                raise ConnectionError("_tsToken未在token.txt中配置，无法初始化API。")
+                raise ConnectionError("本地缓存未配置 Token，无法初始化 API。")
             print("_ts正在初始化Tushare API实例...")
             ts.set_token(token)
             cls._ts = ts

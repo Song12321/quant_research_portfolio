@@ -2,11 +2,10 @@ import pandas as pd
 import tushare as ts
 from tushare.pro.client import DataApi
 
+DataApi._DataApi__http_url = "https://t.xiaodefa.top/dataapi"
 
 TOKEN = "5a7e223fd433489b9572deae1874c6a01fc0d4a793480a71d4f7f8ec"
 TS_CODE = "600023.SH"
-
-DataApi._DataApi__http_url = "https://t.xiaodefa.top/dataapi"
 
 
 def _revision_example(data: pd.DataFrame) -> str:
@@ -89,5 +88,11 @@ def main() -> None:
     )
 
 
+def temp():
+    pro = ts.pro_api(TOKEN)
+
+
+    df = pro.suspend_d(ts_code='000670.SZ', trade_date='20200312')
+
 if __name__ == "__main__":
-    main()
+    temp()
