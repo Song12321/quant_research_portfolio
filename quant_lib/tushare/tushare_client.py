@@ -4,7 +4,6 @@ from tushare.pro.client import DataApi
 from quant_lib.tushare.tushare_token_manager.token_manager import load_token_from_local, refresh_token
 
 # Pro 客户端和 ts.pro_bar 内部创建的客户端使用同一个代理地址。
-DataApi._DataApi__http_url = "https://t.xiaodefa.top/dataapi"
 
 ##
 #

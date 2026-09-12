@@ -1,4 +1,4 @@
-"""全市场股票数据日更：拉取、合并、直接保存。"""
+"""按需更新股票数据。返回拉取行数；失败直接停止，不回滚已保存的数据。"""
 
 from datetime import datetime
 from pathlib import Path
@@ -6,39 +6,40 @@ from pathlib import Path
 import pandas as pd
 
 from quant_lib.config.constant_config import MARKET_DATA_ROOT, get_market_data_path
+from quant_lib.config.logger_config import setup_logger
 from quant_lib.tushare.api_wrapper import call_pro_tushare_api, call_ts_tushare_api
 
 
-ALL_DATASETS = (
-    'stock_basic.parquet', 'industry_record.parquet',
-    'daily', 'daily_hfq', 'daily_basic', 'stk_limit', 'suspend_d.parquet',
-    'balancesheet.parquet', 'cashflow.parquet', 'income.parquet',
-    'fina_indicator.parquet', 'dividend.parquet', 'namechange.parquet',
-)
-_DAILY = ('daily', 'daily_hfq', 'daily_basic', 'stk_limit')
+logger = setup_logger(__name__)
+
+
 _STOCK_BASIC_FIELDS = (
     'ts_code,symbol,name,area,industry,fullname,enname,cnspell,market,exchange,'
     'curr_type,list_status,list_date,delist_date,is_hs,act_name,act_ent_type'
 )
 _REPORT_KEY = ['ts_code', 'end_date', 'ann_date', 'f_ann_date', 'report_type']
+_HM_DETAIL_FIELDS = (
+    'trade_date,ts_code,ts_name,buy_amount,sell_amount,net_amount,hm_name,hm_orgs,tag'
+)
 _KEYS = {
-    **{name: ['ts_code', 'trade_date'] for name in _DAILY},
+    **{name: ['ts_code', 'trade_date'] for name in ('daily', 'daily_hfq', 'daily_basic', 'stk_limit')},
     'balancesheet.parquet': _REPORT_KEY,
     'cashflow.parquet': _REPORT_KEY,
     'income.parquet': _REPORT_KEY,
     'fina_indicator.parquet': ['ts_code', 'end_date', 'ann_date'],
-    'dividend.parquet': ['ts_code', 'end_date', 'ann_date', 'div_proc', 'imp_ann_date'],
     'namechange.parquet': ['ts_code', 'start_date', 'name'],
 }
-_DATETIMES = {
-    'daily_hfq': ('trade_date',),
-    'industry_record.parquet': ('in_date', 'out_date'),
-    'fina_indicator.parquet': ('end_date',),
-}
+
+
+def _path(dataset: str) -> Path:
+    return get_market_data_path(dataset, MARKET_DATA_ROOT)
 
 
 def _pro(api: str, **params) -> pd.DataFrame:
-    return call_pro_tushare_api(api, max_retries=1, **params)
+    frame = call_pro_tushare_api(api, max_retries=3, **params)
+    if not isinstance(frame, pd.DataFrame):
+        raise TypeError(f'{api}: 接口必须返回 DataFrame')
+    return frame
 
 
 def _concat(frames) -> pd.DataFrame:
@@ -48,34 +49,45 @@ def _concat(frames) -> pd.DataFrame:
     return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
 
 
-def _fetch(dataset: str, start: str, end: str, symbols: list[str]) -> pd.DataFrame:
-    dates = pd.date_range(start, end).strftime('%Y%m%d')
-    if dataset == 'industry_record.parquet':
-        return _concat(
-            _pro('index_member_all', ts_code=code, is_new=state)
-            for code in symbols for state in ('N', 'Y')
-        )
-    if dataset == 'namechange.parquet':
-        # 名称变更会补充旧名称的结束日，逐股获取完整记录再合并。
-        return _concat(_pro('namechange', ts_code=code) for code in symbols)
-    if dataset == 'daily_hfq':
-        return _concat(
-            call_ts_tushare_api('pro_bar', max_retries=1, ts_code=code,
-                               start_date=start, end_date=end, adj='hfq', asset='E')
-            for code in symbols
-        )
-    if dataset in ('daily', 'daily_basic', 'stk_limit', 'suspend_d.parquet'):
-        return _concat(_pro(dataset.removesuffix('.parquet'), trade_date=date) for date in dates)
-    if dataset == 'dividend.parquet':
-        return _concat(
-            _pro('dividend', **{field: date})
-            for date in dates for field in ('ann_date', 'imp_ann_date')
-        )
-    # 四张财务表按公告日查询，不扫描全历史报告期，不改写公告日期。
-    return _concat(
-        _pro(dataset.removesuffix('.parquet') + '_vip', ann_date=date)
-        for date in dates
-    )
+def _symbols() -> list[str]:
+    # 逐股接口使用本地全市场名单；需要刷新时先调用 update_stock_basic。
+    basic = pd.read_parquet(_path('stock_basic.parquet'), columns=['ts_code'])
+    codes = basic['ts_code']
+    valid = codes.map(lambda code: isinstance(code, str) and bool(code.strip()))
+    if codes.empty or not valid.all():
+        raise ValueError('stock_basic: 股票代码为空或非法，请先更新股票名单')
+    return codes.drop_duplicates().tolist()
+
+
+def _incremental_start(dataset: str, column: str, initial_date: str, end_date: str) -> str:
+    # 初始日期仅用于本地无数据；已有数据从本表最大日期的下一天开始。
+    for date in (initial_date, end_date):
+        if not isinstance(date, str) or len(date) != 8 or not date.isdigit():
+            raise ValueError(f'日期必须为 YYYYMMDD，实际为 {date!r}')
+        datetime.strptime(date, '%Y%m%d')
+    if initial_date > end_date:
+        raise ValueError('initial_date 必须不晚于 end_date')
+
+    path = _path(dataset)
+    if path.is_dir():
+        files = sorted(path.glob('year=*/data.parquet'))
+    else:
+        files = [path] if path.exists() else []
+    max_date = None
+    for file in files:
+        values = pd.read_parquet(file, columns=[column])[column]
+        if values.empty:
+            continue
+        # 保留现有字符串和 datetime 两种存储格式；非法或缺失日期不能作为增量依据。
+        if pd.api.types.is_datetime64_any_dtype(values):
+            dates = pd.to_datetime(values)
+        else:
+            dates = pd.to_datetime(values.astype(str), format='%Y%m%d')
+        if dates.isna().any():
+            raise ValueError(f'{file}: {column} 存在空日期')
+        current = dates.max().normalize()
+        max_date = current if max_date is None else max(max_date, current)
+    return initial_date if max_date is None else (max_date + pd.Timedelta(days=1)).strftime('%Y%m%d')
 
 
 def _save(path: Path, frame: pd.DataFrame) -> None:
@@ -83,82 +95,193 @@ def _save(path: Path, frame: pd.DataFrame) -> None:
     frame.to_parquet(path, index=False)
 
 
-def _merge_save(dataset: str, path: Path, new: pd.DataFrame,
-                start: str, end: str) -> int:
+def _merge_save(dataset: str, path: Path, new: pd.DataFrame) -> int:
     old = pd.read_parquet(path) if path.exists() else pd.DataFrame()
-    if dataset == 'suspend_d.parquet':
-        # 全市场范围替换，合法空结果也清除该日期范围的旧事件。
-        if not old.empty:
-            dates = pd.to_datetime(old['trade_date'], format='%Y%m%d')
-            old = old.loc[~dates.between(pd.Timestamp(start), pd.Timestamp(end))]
-        merged = pd.concat([old, new], ignore_index=True).drop_duplicates()
-    else:
-        merged = pd.concat([old, new], ignore_index=True).drop_duplicates(
-            subset=_KEYS[dataset], keep='last',
-        )
+    # 同键保留新记录，未返回的历史记录继续保留。
+    merged = pd.concat([old, new], ignore_index=True).drop_duplicates(
+        subset=_KEYS[dataset], keep='last',
+    )
     _save(path, merged)
     return len(new)
 
 
-def _update(dataset: str, start: str, end: str, symbols: list[str]) -> int:
-    # 返回本次拉取的行数，不是去重后的行数，也不是相对旧文件净新增的行数。
-    new = _fetch(dataset, start, end, symbols)
-    path = get_market_data_path(dataset, MARKET_DATA_ROOT)
-    # 普通表返回空时保留旧文件；行业表拉取的是全市场完整历史，空结果视为异常。
-    # 停牌表不能在这里跳过：即使本次没有事件，也要在 _merge_save 中清除
-    # [start, end] 内的旧事件，用本次查询结果替换这段日期范围。
-    if new.empty and dataset != 'suspend_d.parquet':
-        if dataset == 'industry_record.parquet':
-            raise ValueError('industry_record: 全市场行业历史返回空，停止更新')
+def _fetch_daily_hfq(start: str, end: str) -> pd.DataFrame:
+    new = _concat(
+        call_ts_tushare_api('pro_bar', max_retries=1, ts_code=code,
+                           start_date=start, end_date=end, adj='hfq', asset='E')
+        for code in _symbols()
+    )
+    # 后复权行情沿用 datetime 日期格式；空结果直接交给调用方处理。
+    if not new.empty:
+        new['trade_date'] = pd.to_datetime(new['trade_date'], format='%Y%m%d')
+    return new
+
+
+def _update_daily(dataset: str, initial_date: str, end_date: str) -> int:
+    start = _incremental_start(dataset, 'trade_date', initial_date, end_date)
+    if start > end_date:
         return 0
-    # 只转换已约定存为 datetime 的列，保持各表现有格式；未配置的表不做转换。
-    for column in _DATETIMES.get(dataset, ()):
-        new[column] = pd.to_datetime(new[column], format='%Y%m%d')
-    if dataset == 'industry_record.parquet':
-        # _fetch 不按 start/end 截取行业记录，而是逐股拉取历史和当前成员记录。
-        # 因此整表去重后覆盖保存，让旧记录的退出日期等信息随本次结果刷新。
-        _save(path, new.drop_duplicates())
-        return len(new)
-    if dataset in _DAILY:
-        # 保持现有年份分区和后复权日期类型。
-        # 临时解析 trade_date 只用于分组，不回写该列；后复权日期已在上面转换。
-        # 每个年份只读取、合并并保存对应文件，未涉及的年份文件保持原样。
-        years = pd.to_datetime(new['trade_date'], format='%Y%m%d').dt.year
-        for year, part in new.groupby(years):
-            _merge_save(dataset, path / f'year={year}' / 'data.parquet', part, start, end)
-        return len(new)
-    # 其余表存为单文件：普通表按 _KEYS 去重，同键以新记录覆盖旧记录，
-    # 本次未返回的旧记录保留；停牌表则按上面说明替换指定日期范围。
-    return _merge_save(dataset, path, new, start, end)
 
-
-def upsert_market_data(start_date: str, end_date: str) -> dict[str, int]:
-    """更新 stock 下的 13 类数据，返回各类拉取行数。
-
-    调用或写入失败直接停止，已保存的数据不回滚。
-    财务按公告日查询，不保证捕获公告日未变化的历史修订。
-    """
-    for date in (start_date, end_date):
-        if not isinstance(date, str) or len(date) != 8 or not date.isdigit():
-            raise ValueError(f'日期必须为 YYYYMMDD，实际为 {date!r}')
-        datetime.strptime(date, '%Y%m%d')
-    if start_date > end_date:
-        raise ValueError('start_date 必须不晚于 end_date')
-
-    basic = _concat(_pro('stock_basic', list_status=status, fields=_STOCK_BASIC_FIELDS)
-                    for status in ('L', 'D', 'P'))
-    if basic.empty:
-        raise ValueError('stock_basic: 全市场股票名单返回空，停止更新')
-    symbols = basic['ts_code'].drop_duplicates().tolist()
-    _save(get_market_data_path('stock_basic.parquet', MARKET_DATA_ROOT), basic)
-    result = {'stock_basic.parquet': len(basic)}
-    for dataset in ALL_DATASETS[1:]:
-        result[dataset] = 0
-        if dataset in _DAILY:
-            for year in range(int(start_date[:4]), int(end_date[:4]) + 1):
-                start = max(start_date, f'{year}0101')
-                end = min(end_date, f'{year}1231')
-                result[dataset] += _update(dataset, start, end, symbols)
+    rows = 0
+    # 逐年拉取和保存，保持 year=YYYY/data.parquet，不一次加载多年行情。
+    for year in range(int(start[:4]), int(end_date[:4]) + 1):
+        year_start = max(start, f'{year}0101')
+        year_end = min(end_date, f'{year}1231')
+        if dataset == 'daily_hfq':
+            new = _fetch_daily_hfq(year_start, year_end)
         else:
-            result[dataset] = _update(dataset, start_date, end_date, symbols)
-    return result
+            dates = pd.date_range(year_start, year_end).strftime('%Y%m%d')
+            new = _concat(_pro(dataset, trade_date=date) for date in dates)
+        if new.empty:
+            continue
+        rows += _merge_save(dataset, _path(dataset) / f'year={year}' / 'data.parquet',
+                            new)
+    return rows
+
+
+def update_daily(initial_date: str, end_date: str) -> int:
+    return _update_daily('daily', initial_date, end_date)
+
+
+def update_daily_hfq(initial_date: str, end_date: str) -> int:
+    return _update_daily('daily_hfq', initial_date, end_date)
+
+
+def update_daily_basic(initial_date: str, end_date: str) -> int:
+    return _update_daily('daily_basic', initial_date, end_date)
+
+
+def update_stk_limit(initial_date: str, end_date: str) -> int:
+    return _update_daily('stk_limit', initial_date, end_date)
+
+
+def update_hm_detail(initial_date: str, end_date: str) -> int:
+    """按日增量下载游资明细，按年保存；返回拉取行数，不自动补历史修订。"""
+    start = _incremental_start('hm_detail', 'trade_date', initial_date, end_date)
+    if start > end_date:
+        logger.info(f'hm_detail: 无需更新，已有数据覆盖至 {end_date}')
+        return 0
+
+    total_days = (pd.Timestamp(end_date) - pd.Timestamp(start)).days + 1
+    completed_days = 0
+    logger.info(f'hm_detail: 开始拉取 {start} 至 {end_date}，共 {total_days} 天')
+    columns = _HM_DETAIL_FIELDS.split(',')
+    rows = 0
+    for year in range(int(start[:4]), int(end_date[:4]) + 1):
+        year_start = max(start, f'{year}0101')
+        year_end = min(end_date, f'{year}1231')
+        frames = []
+        for date in pd.date_range(year_start, year_end).strftime('%Y%m%d'):
+            logger.info(f'hm_detail: [{completed_days + 1}/{total_days}] 正在拉取 {date}')
+            frame = _pro('hm_detail', trade_date=date, fields=_HM_DETAIL_FIELDS)
+            # missing = set(columns) - set(frame.columns)
+            # if missing:
+            #     raise ValueError(f'hm_detail {date}: 缺少字段 {sorted(missing)}')
+
+            frames.append(frame)
+            completed_days += 1
+            logger.info(f'hm_detail: [{completed_days}/{total_days}] {date} 返回 {len(frame)} 行')
+        new = _concat(frames)
+        path = _path('hm_detail') / f'year={year}' / 'data.parquet'
+        old = pd.read_parquet(path) if path.exists() else pd.DataFrame(columns=columns)
+        # 文档未声明唯一键；按完整请求范围替换，保留所有原始明细。
+        old = old.loc[~old['trade_date'].between(year_start, year_end)]
+        merged = new if old.empty else old if new.empty else pd.concat([old, new], ignore_index=True)
+        _save(path, merged)
+        rows += len(new)
+        logger.info(f'hm_detail: {year} 年已保存至 {path}，本年拉取 {len(new)} 行，累计 {rows} 行')
+    logger.info(f'hm_detail: 更新完成，共处理 {completed_days} 天，拉取 {rows} 行')
+    return rows
+
+
+def update_suspend(initial_date: str, end_date: str) -> int:
+    dataset = 'suspend_d.parquet'
+    start = _incremental_start(dataset, 'trade_date', initial_date, end_date)
+    if start > end_date:
+        return 0
+    dates = pd.date_range(start, end_date).strftime('%Y%m%d')
+    new = _concat(_pro('suspend_d', trade_date=date) for date in dates)
+    path = _path(dataset)
+    old = pd.read_parquet(path) if path.exists() else pd.DataFrame()
+    # 合法空结果也替换请求范围；没有新事件时，最大事件日期不会前进。
+    if not old.empty:
+        dates = pd.to_datetime(old['trade_date'], format='%Y%m%d')
+        old = old.loc[~dates.between(pd.Timestamp(start), pd.Timestamp(end_date))]
+    merged = pd.concat([old, new], ignore_index=True).drop_duplicates()
+    _save(path, merged)
+    return len(new)
+
+
+def _update_financial(dataset: str, initial_date: str, end_date: str) -> int:
+    # 按公告日增量，不保证捕获公告日未变化的历史修订。
+    start = _incremental_start(dataset, 'ann_date', initial_date, end_date)
+    if start > end_date:
+        return 0
+    dates = pd.date_range(start, end_date).strftime('%Y%m%d')
+    api = dataset.removesuffix('.parquet') + '_vip'
+    new = _concat(_pro(api, ann_date=date) for date in dates)
+    if new.empty:
+        return 0
+    if dataset == 'fina_indicator.parquet':
+        new['end_date'] = pd.to_datetime(new['end_date'], format='%Y%m%d')
+    return _merge_save(dataset, _path(dataset), new)
+
+
+def update_balancesheet(initial_date: str, end_date: str) -> int:
+    return _update_financial('balancesheet.parquet', initial_date, end_date)
+
+
+def update_cashflow(initial_date: str, end_date: str) -> int:
+    return _update_financial('cashflow.parquet', initial_date, end_date)
+
+
+def update_income(initial_date: str, end_date: str) -> int:
+    return _update_financial('income.parquet', initial_date, end_date)
+
+
+def update_fina_indicator(initial_date: str, end_date: str) -> int:
+    return _update_financial('fina_indicator.parquet', initial_date, end_date)
+
+
+def update_stock_basic() -> int:
+    new = _concat(_pro('stock_basic', list_status=status, fields=_STOCK_BASIC_FIELDS)
+                  for status in ('L', 'D', 'P'))
+    if new.empty:
+        raise ValueError('stock_basic: 全市场股票名单返回空，停止更新')
+    _save(_path('stock_basic.parquet'), new)
+    return len(new)
+
+
+def update_industry_record() -> int:
+    # 完整刷新历史和当前成员记录，更新旧记录的退出日期。
+    new = _concat(_pro('index_member_all', ts_code=code, is_new=state)
+                  for code in _symbols() for state in ('N', 'Y'))
+    if new.empty:
+        raise ValueError('industry_record: 全市场行业历史返回空，停止更新')
+    for column in ('in_date', 'out_date'):
+        new[column] = pd.to_datetime(new[column], format='%Y%m%d')
+    _save(_path('industry_record.parquet'), new.drop_duplicates())
+    return len(new)
+
+
+def update_namechange() -> int:
+    # 逐股获取完整历史，更新旧名称的结束日。
+    new = _concat(_pro('namechange', ts_code=code) for code in _symbols())
+    if new.empty:
+        return 0
+    return _merge_save('namechange.parquet', _path('namechange.parquet'), new)
+
+
+def update_dividend() -> int:
+    # 不做日期增量：逐股拉取完整分红历史，全部成功后再覆盖保存。
+    frames = []
+    for code in _symbols():
+        frame = _pro('dividend', ts_code=code)
+        if len(frame) >= 2000:
+            raise ValueError(f'{code}: 分红返回达到 2000 行上限，无法确认完整性')
+        frames.append(frame)
+    new = _concat(frames)
+    if new.empty:
+        raise ValueError('dividend: 全市场分红历史返回空，停止更新')
+    _save(_path('dividend.parquet'), new.drop_duplicates())
+    return len(new)

@@ -92,49 +92,44 @@ def test_partial_payload_is_accepted_and_reports_are_written(tmp_path: Path) -> 
     assert (output / "summary.csv").is_file()
 
 
-@pytest.mark.parametrize(
-    "suspend_rows",
-    [
-        [{"ts_code": "000001.SZ", "trade_date": AUDIT_DAY,
-          "suspend_timing": "09:30-10:00", "suspend_type": "S"}],
-        [
-            {"ts_code": "000001.SZ", "trade_date": AUDIT_DAY,
-             "suspend_timing": None, "suspend_type": "S"},
-            {"ts_code": "000001.SZ", "trade_date": AUDIT_DAY,
-             "suspend_timing": None, "suspend_type": "R"},
-        ],
-        [
-            {"ts_code": "000001.SZ", "trade_date": AUDIT_DAY,
-             "suspend_timing": None, "suspend_type": "S"},
-            {"ts_code": "000001.SZ", "trade_date": AUDIT_DAY,
-             "suspend_timing": "09:30-10:00", "suspend_type": "R"},
-        ],
-    ],
-)
-def test_intraday_suspend_or_same_day_resume_still_requires_daily_row(
-    tmp_path: Path, suspend_rows: list[dict]
-) -> None:
+@pytest.mark.parametrize("amount", [0.0, None])
+def test_no_positive_amount_is_unknown(tmp_path: Path, amount) -> None:
     root = tmp_path / "market_data"
-    _build_root(root, daily_rows=[], suspend=suspend_rows)
+    _build_root(root)
+    frame = _daily_frames()["daily"]
+    frame["amount"] = amount
+    _write_dataset(root, "daily", frame)
+    summary = _run(root, tmp_path / "report").set_index("dataset")
+    assert summary.loc["daily", "unknown_rows"] == 1
+    assert summary.loc["daily", "status"] == "UNKNOWN"
+    assert summary.loc[list(DAILY_DATASETS[1:]), "expected_rows"].eq(0).all()
+    assert summary["missing_rows"].eq(0).all()
 
-    summary = _run(root, tmp_path / "report")
 
-    daily = summary.set_index("dataset").loc[list(DAILY_DATASETS)]
-    assert daily["missing_rows"].eq(1).all()
-    assert daily["status"].eq("FAIL").all()
-
-
-def test_full_day_suspend_exempts_daily_rows(tmp_path: Path) -> None:
+def test_all_four_tables_missing_is_unknown_not_missing(tmp_path: Path) -> None:
     root = tmp_path / "market_data"
-    suspend = [{"ts_code": "000001.SZ", "trade_date": AUDIT_DAY,
-                "suspend_timing": None, "suspend_type": "S"}]
-    _build_root(root, daily_rows=[], suspend=suspend)
+    _build_root(root, daily_rows=[])
+    summary = _run(root, tmp_path / "report").set_index("dataset")
+    assert summary.loc["daily", "unknown_rows"] == 1
+    assert summary.loc["daily", "status"] == "UNKNOWN"
+    assert summary["missing_rows"].eq(0).all()
+    issues = pd.read_csv(tmp_path / "report" / "issues.csv")
+    assert issues["issue_type"].tolist() == ["trading_status_unknown"]
 
-    summary = _run(root, tmp_path / "report")
 
-    daily = summary.set_index("dataset").loc[list(DAILY_DATASETS)]
-    assert daily["expected_rows"].eq(0).all()
-    assert daily["status"].eq("PASS").all()
+def test_positive_amount_requires_other_tables_without_suspend_baseline(tmp_path: Path) -> None:
+    root = tmp_path / "market_data"
+    frames = _reference_frames()
+    frames.pop("suspend_d.parquet")
+    frames.update(_daily_frames())
+    frames["daily_hfq"] = frames["daily_hfq"].iloc[:0]
+    for dataset, frame in frames.items():
+        _write_dataset(root, dataset, frame)
+    summary = _run(root, tmp_path / "report").set_index("dataset")
+    assert summary.loc["daily", "status"] == "PASS"
+    assert summary.loc["daily_hfq", "missing_rows"] == 1
+    assert summary.loc["daily_hfq", "status"] == "FAIL"
+    assert summary.loc["daily_basic", "status"] == "PASS"
 
 
 def test_row_with_no_business_value_is_invalid_not_missing(tmp_path: Path) -> None:
@@ -146,15 +141,15 @@ def test_row_with_no_business_value_is_invalid_not_missing(tmp_path: Path) -> No
         "close": None,
         "amount": None,
     }])
-    _write_dataset(root, "daily", empty_payload)
+    _write_dataset(root, "daily_hfq", empty_payload)
 
     summary = _run(root, tmp_path / "report")
 
-    daily = summary.set_index("dataset").loc["daily"]
+    daily = summary.set_index("dataset").loc["daily_hfq"]
     assert daily["missing_rows"] == 0
     assert daily["invalid_rows"] == 1
     issues = pd.read_csv(tmp_path / "report" / "issues.csv")
-    actual = issues.loc[issues["dataset"].eq("daily"), "issue_type"].tolist()
+    actual = issues.loc[issues["dataset"].eq("daily_hfq"), "issue_type"].tolist()
     assert actual == ["empty_payload"]
 
 
@@ -190,9 +185,15 @@ def test_missing_baseline_is_fatal_and_writes_no_report(tmp_path: Path) -> None:
     assert not output.exists()
 
 
-def test_invalid_explicit_date_stops_execution(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(data_recon_manager, "START_DATE", "not-a-date")
-    monkeypatch.setattr(data_recon_manager, "END_DATE", AUDIT_DAY)
-
+def test_invalid_explicit_date_stops_execution(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
-        data_recon_manager.main()
+        _run(tmp_path / "market_data", tmp_path / "report", "not-a-date", AUDIT_DAY)
+
+
+def test_missing_amount_column_stops_execution(tmp_path: Path) -> None:
+    root = tmp_path / "market_data"
+    _build_root(root)
+    _write_dataset(root, "daily", _daily_frames()["daily"].drop(columns="amount"))
+    with pytest.raises(KeyError, match="amount"):
+        _run(root, tmp_path / "report")
+    assert not (tmp_path / "report").exists()

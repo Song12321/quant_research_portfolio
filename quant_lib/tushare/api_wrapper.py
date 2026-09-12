@@ -37,7 +37,7 @@ class RateLimiter:
 
 # --- 2. 创建一个全局共享的限速器实例 ---
 # 所有的API调用函数都将使用这同一个实例
-shared_rate_limiter = RateLimiter(calls_per_minute=380)
+shared_rate_limiter = RateLimiter(calls_per_minute=2000)
 
 
 # --- 3. 你的两个API调用函数 (已集成中央限速) ---
@@ -52,6 +52,7 @@ _API_ROW_LIMITS = {
     'dividend': None,
     'fina_indicator': 100,
     'fina_indicator_vip': None,
+    'hm_detail': 2000,
     'income_vip': None,
     'index_basic': 8000,
     'index_daily': None,

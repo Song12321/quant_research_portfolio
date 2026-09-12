@@ -33,6 +33,7 @@ _DATASET_RELATIVE_PATHS = {
     'daily_hfq': Path('stock/quotes/daily_hfq'),
     'adj_factor': Path('stock/quotes/adj_factor'),
     'daily_basic': Path('stock/market_metrics/daily_basic'),
+    'hm_detail': Path('stock/market_metrics/hm_detail'),
     'margin_detail': Path('stock/market_metrics/margin_detail'),
     'stk_limit': Path('stock/trading_constraints/stk_limit'),
     'suspend_d.parquet': Path('stock/trading_constraints/suspend_d.parquet'),

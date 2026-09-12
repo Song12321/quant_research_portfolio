@@ -5,6 +5,7 @@ import requests
 import json
 from pathlib import Path
 import tushare as ts
+from quant_lib.config.constant_config import TUSHARE_TOKEN_PATH
 
 
 class TokenManager:
@@ -234,6 +235,11 @@ def is_token_invalid_error(error_msg):
 def save_token_to_local(token, key_name=None, call_count=None, max_count=None):
      token_manager.save_token_to_cache(token,key_name,call_count,max_count)
 def load_token_from_local():
-    return token_manager.load_token_from_cache()
+    """Read the explicitly configured token from the project token.txt file."""
+    token_path = Path(TUSHARE_TOKEN_PATH)
+    if not token_path.exists():
+        return None
+    token = token_path.read_text(encoding='utf-8').strip()
+    return token or None
 if __name__ == '__main__':
     print(token_manager.get_valid_token())
