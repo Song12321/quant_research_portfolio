@@ -39,9 +39,11 @@ def _path(dataset: str) -> Path:
 
 
 def _pro(api: str, **params) -> pd.DataFrame:
+    logger.info('%s: params=%s', api, params)
     frame = call_pro_tushare_api(api, max_retries=3, **params)
     if not isinstance(frame, pd.DataFrame):
         raise TypeError(f'{api}: 接口必须返回 DataFrame')
+    logger.info('接口:%s: params=%s  rows=%s', api, params, len(frame))
     return frame
 
 
