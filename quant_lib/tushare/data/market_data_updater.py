@@ -22,6 +22,7 @@ _HM_DETAIL_FIELDS = (
     'trade_date,ts_code,ts_name,buy_amount,sell_amount,net_amount,hm_name,hm_orgs,tag'
 )
 _KEYS = {
+    'trade_cal.parquet': ['exchange', 'cal_date'],
     **{name: ['ts_code', 'trade_date'] for name in ('daily', 'daily_hfq', 'daily_basic', 'stk_limit')},
     'balancesheet.parquet': _REPORT_KEY,
     'cashflow.parquet': _REPORT_KEY,
@@ -105,6 +106,58 @@ def _merge_save(dataset: str, path: Path, new: pd.DataFrame) -> int:
     return len(new)
 
 
+def _validate_trade_cal(frame: pd.DataFrame, start: str, end: str) -> None:
+    required = {'exchange', 'cal_date', 'is_open'}
+    if not required.issubset(frame.columns):
+        raise ValueError(f'trade_cal: 缺少字段 {sorted(required - set(frame.columns))}')
+    for date in (start, end):
+        if not isinstance(date, str) or len(date) != 8 or not date.isdigit():
+            raise ValueError('trade_cal: 日期必须为 YYYYMMDD')
+        datetime.strptime(date, '%Y%m%d')
+    if start > end:
+        raise ValueError('trade_cal: 起点必须不晚于截止日')
+    if (frame[list(required)].isna().any().any()
+            or not frame['exchange'].eq('SSE').all()
+            or not frame['is_open'].isin([0, 1]).all()
+            or frame['cal_date'].duplicated().any()):
+        raise ValueError('trade_cal: 交易所、开市标记或日期非法、缺失或重复')
+    dates = frame['cal_date']
+    if not dates.map(lambda d: isinstance(d, str) and len(d) == 8 and d.isdigit()).all():
+        raise ValueError('trade_cal: cal_date 必须为 YYYYMMDD 字符串')
+    pd.to_datetime(dates, format='%Y%m%d', errors='raise')
+    expected = set(pd.date_range(start, end).strftime('%Y%m%d'))
+    if expected - set(dates):
+        raise ValueError(f'trade_cal: 未完整覆盖 {start} 至 {end}，请先更新本地交易日历')
+
+
+def update_trade_cal(initial_date: str, end_date: str) -> int:
+    """获取 SSE 完整日历（含休市日），合并保存至 shared/trade_cal.parquet。"""
+    # 按年请求，避免多年日历超过接口单次返回上限。
+    datetime.strptime(initial_date, '%Y%m%d')
+    datetime.strptime(end_date, '%Y%m%d')
+    if initial_date > end_date:
+        raise ValueError('initial_date 必须不晚于 end_date')
+    frames = []
+    for year in range(int(initial_date[:4]), int(end_date[:4]) + 1):
+        start, end = max(initial_date, f'{year}0101'), min(end_date, f'{year}1231')
+        frame = _pro('trade_cal', exchange='SSE', start_date=start, end_date=end,
+                     fields='exchange,cal_date,is_open,pretrade_date')
+        _validate_trade_cal(frame, start, end)
+        frames.append(frame)
+    return _merge_save('trade_cal.parquet', _path('trade_cal.parquet'), _concat(frames))
+
+
+def read_trade_dates(start_date: str, end_date: str) -> list[str]:
+    """只读取本地 SSE 日历，缺失或不完整时直接报错。"""
+    frame = pd.read_parquet(_path('trade_cal.parquet'))
+    frame = frame.loc[frame['exchange'] == 'SSE']
+    _validate_trade_cal(frame, start_date, end_date)
+    return frame.loc[
+        frame['is_open'].eq(1) & frame['cal_date'].between(start_date, end_date),
+        'cal_date',
+    ].sort_values().tolist()
+
+
 def _fetch_daily_hfq(start: str, end: str) -> pd.DataFrame:
     new = _concat(
         call_ts_tushare_api('pro_bar', max_retries=1, ts_code=code,
@@ -130,7 +183,7 @@ def _update_daily(dataset: str, initial_date: str, end_date: str) -> int:
         if dataset == 'daily_hfq':
             new = _fetch_daily_hfq(year_start, year_end)
         else:
-            dates = pd.date_range(year_start, year_end).strftime('%Y%m%d')
+            dates = read_trade_dates(year_start, year_end)
             new = _concat(_pro(dataset, trade_date=date) for date in dates)
         if new.empty:
             continue
@@ -162,7 +215,8 @@ def update_hm_detail(initial_date: str, end_date: str) -> int:
         logger.info(f'hm_detail: 无需更新，已有数据覆盖至 {end_date}')
         return 0
 
-    total_days = (pd.Timestamp(end_date) - pd.Timestamp(start)).days + 1
+    trade_dates = read_trade_dates(start, end_date)
+    total_days = len(trade_dates)
     completed_days = 0
     logger.info(f'hm_detail: 开始拉取 {start} 至 {end_date}，共 {total_days} 天')
     columns = _HM_DETAIL_FIELDS.split(',')
@@ -171,7 +225,7 @@ def update_hm_detail(initial_date: str, end_date: str) -> int:
         year_start = max(start, f'{year}0101')
         year_end = min(end_date, f'{year}1231')
         frames = []
-        for date in pd.date_range(year_start, year_end).strftime('%Y%m%d'):
+        for date in (date for date in trade_dates if year_start <= date <= year_end):
             logger.info(f'hm_detail: [{completed_days + 1}/{total_days}] 正在拉取 {date}')
             frame = _pro('hm_detail', trade_date=date, fields=_HM_DETAIL_FIELDS)
             # missing = set(columns) - set(frame.columns)
@@ -199,7 +253,7 @@ def update_suspend(initial_date: str, end_date: str) -> int:
     start = _incremental_start(dataset, 'trade_date', initial_date, end_date)
     if start > end_date:
         return 0
-    dates = pd.date_range(start, end_date).strftime('%Y%m%d')
+    dates = read_trade_dates(start, end_date)
     new = _concat(_pro('suspend_d', trade_date=date) for date in dates)
     path = _path(dataset)
     old = pd.read_parquet(path) if path.exists() else pd.DataFrame()
