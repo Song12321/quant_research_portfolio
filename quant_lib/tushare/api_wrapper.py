@@ -7,6 +7,11 @@ from quant_lib.config.logger_config import setup_logger, log_warning
 # 配置日志
 logger = setup_logger(__name__)
 
+
+class RowLimitExceeded(ValueError):
+    """API returned its row limit; the response may be incomplete."""
+
+
 # --- 1. 中央速率控制器 ---
 ##
 # 迫于tushare 老是限制速率！#
@@ -61,7 +66,7 @@ _API_ROW_LIMITS = {
     'index_weight': None,
     'margin_detail': 6000,
     'namechange': None,
-    'pro_bar': None,
+    'pro_bar': 6000,
     'stk_limit': 5800,
     'stock_basic': 6000,
     'suspend_d': None,
@@ -102,12 +107,14 @@ def call_pro_tushare_api(func_name: str, max_retries=3, **kwargs):
 
             if reach_limit(func_name, df):
                 # 这个错误非常严重，直接抛出，让上层程序知道数据不完整
-                raise ValueError(
+                raise RowLimitExceeded(
                     f"API '{func_name}' 返回条数已达官方单次上限: "
                     f"rows={len(df)}, limit={_API_ROW_LIMITS[func_name]}，数据可能不完整！"
                 )
             return df
 
+        except RowLimitExceeded:
+            raise
         except Exception as e:
             # ... (错误处理和Token刷新逻辑保持不变) ...
             error_message = str(e)
@@ -137,11 +144,13 @@ def call_ts_tushare_api(func_name: str, max_retries=3, **kwargs):
             df = api_func(**kwargs)
             if reach_limit(func_name, df):
                 # 这个错误非常严重，直接抛出，让上层程序知道数据不完整
-                raise ValueError(
+                raise RowLimitExceeded(
                     f"API '{func_name}' 返回条数已达官方单次上限: "
                     f"rows={len(df)}, limit={_API_ROW_LIMITS[func_name]}，数据可能不完整！"
                 )
             return df
+        except RowLimitExceeded:
+            raise
         except Exception as e:
             # ... (错误处理和Token刷新逻辑保持不变) ...
             error_message = str(e)

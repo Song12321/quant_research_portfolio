@@ -1,3 +1,4 @@
 import  pandas as pd
-x  = pd.read_parquet(r"D:\lqs\quantity\market_data\stock\trading_constraints\suspend_d.parquet")
+daiy_2026=r'D:\lqs\quantity\market_data\stock\quotes\daily\year=2026'
+x  = pd.read_parquet(daiy_2026)
 print(x)

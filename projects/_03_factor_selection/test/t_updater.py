@@ -9,7 +9,7 @@ END_DATE = '20260913'
 if __name__ == '__main__':
     # updater.update_trade_cal(INITIAL_DATE, END_DATE)   20200101 -20260913 done
     # # 逐股接口依赖本地名单；名单需要刷新时先执行这一行。
-    updater.update_stock_basic()  # 全量刷新股票名单，含上市、退市、暂停上市股票
+    # updater.update_stock_basic()  # 全量刷新股票名单，含上市、退市、暂停上市股票
     # updater.update_industry_record()  # 全量刷新行业归属历史
     updater.update_daily(INITIAL_DATE, END_DATE)  # 增量更新不复权日线行情
     # updater.update_daily_hfq(INITIAL_DATE, END_DATE)  # 增量更新后复权日线行情

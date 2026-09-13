@@ -1,13 +1,15 @@
 """按需更新股票数据。返回拉取行数；失败直接停止，不回滚已保存的数据。"""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
 
 from quant_lib.config.constant_config import MARKET_DATA_ROOT, get_market_data_path
 from quant_lib.config.logger_config import setup_logger
-from quant_lib.tushare.api_wrapper import call_pro_tushare_api, call_ts_tushare_api
+from quant_lib.tushare.api_wrapper import (
+    RowLimitExceeded, call_pro_tushare_api, call_ts_tushare_api,
+)
 
 
 logger = setup_logger(__name__)
@@ -157,11 +159,32 @@ def read_trade_dates(start_date: str, end_date: str) -> list[str]:
         'cal_date',
     ].sort_values().tolist()
 
+#自切割
+def _fetch_by_range(fetch, start: str, end: str) -> pd.DataFrame:
+    try:
+        return fetch(start, end)
+    except RowLimitExceeded:
+        if start == end:
+            raise
+        first = datetime.strptime(start, '%Y%m%d')
+        last = datetime.strptime(end, '%Y%m%d')
+        mid = first + timedelta(days=(last - first).days // 2)
+        left = _fetch_by_range(fetch, start, mid.strftime('%Y%m%d'))
+        right = _fetch_by_range(
+            fetch, (mid + timedelta(days=1)).strftime('%Y%m%d'), end,
+        )
+        return _concat([left, right])
+
 
 def _fetch_daily_hfq(start: str, end: str) -> pd.DataFrame:
     new = _concat(
-        call_ts_tushare_api('pro_bar', max_retries=1, ts_code=code,
-                           start_date=start, end_date=end, adj='hfq', asset='E')
+        _fetch_by_range(
+            lambda first, last: call_ts_tushare_api(
+                'pro_bar', max_retries=1, ts_code=code,
+                start_date=first, end_date=last, adj='hfq', asset='E',
+            ),
+            start, end,
+        )
         for code in _symbols()
     )
     # 后复权行情沿用 datetime 日期格式；空结果直接交给调用方处理。
@@ -175,20 +198,22 @@ def _update_daily(dataset: str, initial_date: str, end_date: str) -> int:
     if start > end_date:
         return 0
 
+    new = _fetch_by_range(
+        lambda first, last: _pro(dataset, start_date=first, end_date=last),
+        start, end_date,
+    )
+    return _save_daily_by_year(dataset, new)
+
+
+def _save_daily_by_year(dataset: str, new: pd.DataFrame) -> int:
+    if new.empty:
+        return 0
+
     rows = 0
-    # 逐年拉取和保存，保持 year=YYYY/data.parquet，不一次加载多年行情。
-    for year in range(int(start[:4]), int(end_date[:4]) + 1):
-        year_start = max(start, f'{year}0101')
-        year_end = min(end_date, f'{year}1231')
-        if dataset == 'daily_hfq':
-            new = _fetch_daily_hfq(year_start, year_end)
-        else:
-            dates = read_trade_dates(year_start, year_end)
-            new = _concat(_pro(dataset, trade_date=date) for date in dates)
-        if new.empty:
-            continue
+    years = pd.to_datetime(new['trade_date'], format='%Y%m%d').dt.year
+    for year, part in new.groupby(years):
         rows += _merge_save(dataset, _path(dataset) / f'year={year}' / 'data.parquet',
-                            new)
+                            part)
     return rows
 
 
@@ -197,7 +222,11 @@ def update_daily(initial_date: str, end_date: str) -> int:
 
 
 def update_daily_hfq(initial_date: str, end_date: str) -> int:
-    return _update_daily('daily_hfq', initial_date, end_date)
+    start = _incremental_start('daily_hfq', 'trade_date', initial_date, end_date)
+    if start > end_date:
+        return 0
+    new = _fetch_daily_hfq(start, end_date)
+    return _save_daily_by_year('daily_hfq', new)
 
 
 def update_daily_basic(initial_date: str, end_date: str) -> int:
