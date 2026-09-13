@@ -90,7 +90,7 @@ def _get_nan_comment(field: str, rate: float):
         return None
     if field in ['circ_mv', 'total_mv',
                  'turnover_rate',
-                 'close_raw', 'open_raw', 'high_raw', 'low_raw', 'vol_raw',
+                 'close_raw', 'open_raw', 'high_raw', 'low_raw', 'vol_raw', 'adj_factor',
                  'close_hfq', 'open_hfq', 'high_hfq', 'low_hfq',
                  'pre_close', 'amount'] and rate < 0.25:  # 亲测 一大段时间，可能有的股票最后一个月才上市，导致前面空缺，有缺失 那很正常！
         # "正常现象：不需要care 多少缺失率"
@@ -119,7 +119,7 @@ class DataManager:
     4. 数据对齐和预处理
     """
 
-    RESIDENT_RAW_FIELDS = ('close_hfq', 'circ_mv', 'turnover_rate', 'list_date')
+    RESIDENT_RAW_FIELDS = ('close_raw', 'circ_mv', 'turnover_rate', 'list_date')
 
     # 执行 __init__ 对应逻辑。
     def __init__(self, config_path: str=config_yaml_path, experiments_config_path: str=experiments_yaml_path, need_data_deal: bool = True):
@@ -274,9 +274,9 @@ class DataManager:
                 f"原始字段加载结果违反契约: field={field_name}, loaded={sorted(loaded)}"
             )
         check_field_level_completeness(loaded)
-        base_df = self.raw_dfs.get('close_hfq')
+        base_df = self.raw_dfs.get('close_raw')
         if base_df is None:
-            raise RuntimeError("临时原始字段对齐失败: 常驻字段 close_hfq 未加载")
+            raise RuntimeError("临时原始字段对齐失败: 常驻字段 close_raw 未加载")
         aligned_df = loaded[field_name].reindex(index=base_df.index, columns=base_df.columns)
         self.temporary_raw_dfs[field_name] = aligned_df
         return aligned_df
@@ -304,7 +304,7 @@ class DataManager:
         # print("1. 验证股票池构建所需数据...")
 
         # 验证必需字段是否已加载
-        required_fields_for_universe = ['close_hfq', 'circ_mv', 'turnover_rate', 'list_date']
+        required_fields_for_universe = ['close_raw', 'circ_mv', 'turnover_rate', 'list_date']
         missing_fields = [field for field in required_fields_for_universe if field not in self.raw_dfs]
 
         if missing_fields:
@@ -491,7 +491,7 @@ class DataManager:
     def _filter_by_history_days(self, stock_pool_df: pd.DataFrame, history_days: int) -> pd.DataFrame:
         filtered_pool = apply_history_days_filter(
             stock_pool_df,
-            self.raw_dfs.get('close_hfq'),
+            self.raw_dfs.get('close_raw'),
             history_days,
         )
         if history_days:
@@ -922,13 +922,13 @@ class DataManager:
                 """
         logger.info(f"  构建{pool_name}动态股票池...")
         # 第一步：基础股票池 - 有价格数据的股票
-        if 'close_hfq' not in self.raw_dfs:
+        if 'close_raw' not in self.raw_dfs:
             raise ValueError("缺少价格数据，无法构建股票池")
 
         # 【简化修复】价格数据的连续性已经隐含处理了退市股票，无需重复过滤
 
         # 基于T-1日的价格数据构建股票池
-        close_raw_shifted = self.raw_dfs['close_hfq'].shift(1)  # 使用T-1日的收盘价信息
+        close_raw_shifted = self.raw_dfs['close_raw'].shift(1)  # 使用T-1日的收盘价信息
         final_stock_pool_df = close_raw_shifted.notna()  # T-1日有收盘价的股票，T日可以考虑交易
         final_stock_pool_df = final_stock_pool_df.reindex(self.trading_dates)
         self.show_stock_nums_for_per_day('根据收盘价notna生成的', final_stock_pool_df)

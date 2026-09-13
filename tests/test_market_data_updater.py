@@ -19,6 +19,8 @@ def install_fakes(monkeypatch, root):
                                   'out_date': None, 'is_new': params['is_new']}])
         if api in ('daily', 'daily_basic', 'stk_limit'):
             return pd.DataFrame([{'ts_code': 'L', 'trade_date': params['trade_date'], 'close': 20.0}])
+        if api == 'adj_factor':
+            return pd.DataFrame([{'ts_code': 'L', 'trade_date': params['trade_date'], 'adj_factor': 2.0}])
         if api == 'suspend_d':
             return pd.DataFrame(columns=['ts_code', 'trade_date', 'suspend_type', 'suspend_timing'])
         if api in ('income_vip', 'balancesheet_vip', 'cashflow_vip', 'fina_indicator_vip'):
@@ -34,16 +36,8 @@ def install_fakes(monkeypatch, root):
                                   'name': 'name', 'end_date': '20250102'}])
         raise AssertionError(api)
 
-    def ts(api, max_retries, **params):
-        assert api == 'pro_bar'
-        assert max_retries == 1
-        calls.append((api, params))
-        dates = pd.date_range(params['start_date'], params['end_date']).strftime('%Y%m%d')
-        return pd.DataFrame({'ts_code': params['ts_code'], 'trade_date': dates, 'close': 40.0})
-
     monkeypatch.setattr(updater, 'MARKET_DATA_ROOT', root)
     monkeypatch.setattr(updater, 'call_pro_tushare_api', pro)
-    monkeypatch.setattr(updater, 'call_ts_tushare_api', ts)
     return calls
 
 
@@ -54,13 +48,13 @@ def test_independent_updates_cross_year_and_rerun(tmp_path, monkeypatch):
     updater.update_dividend()
     updater.update_namechange()
     updates = (
-        updater.update_daily, updater.update_daily_hfq, updater.update_daily_basic,
+        updater.update_daily, updater.update_adj_factor, updater.update_daily_basic,
         updater.update_stk_limit, updater.update_suspend, updater.update_balancesheet,
         updater.update_cashflow, updater.update_income, updater.update_fina_indicator,
     )
     for update in updates:
         update('20241231', '20250102')
-    assert {p['ts_code'] for api, p in calls if api == 'pro_bar'} == {'L', 'D', 'P'}
+    assert {p['trade_date'] for api, p in calls if api == 'adj_factor'} == {'20241231', '20250101', '20250102'}
     files = sorted(tmp_path.rglob('*.parquet'))
     assert len(files) == 17
     assert all(p.relative_to(tmp_path).parts[0] == 'stock' for p in files)

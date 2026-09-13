@@ -114,6 +114,8 @@ class DataLoader:
                 else:
                     # 单文件
                     logical_name = file_path.stem + '.parquet'
+                if logical_name == 'daily_hfq':
+                    continue
                 self.available_columns_by_file[logical_name].update(columns)
 
                 # 构建字段映射
@@ -124,23 +126,23 @@ class DataLoader:
                     if (col in ['list_date', 'delist_date']) & (
                             logical_name != 'stock_basic.parquet'):
                         continue
-                    if (col in ['close', 'open', 'high', 'low']) & (  # 实测 amount 和vol 在daily和 在daily_hfq数值一模一样！
-                            logical_name == 'daily_hfq'):  # ，我们需要daily_hfq(后复权的数据)表里面的数据 #最新修改 手动计算，不依赖不纯洁的hfq
-                        field_to_files_map[col + '_hfq'] = logical_name
-                        continue
-                    if (col in ['close', 'vol']) & (
+                    if (col in ['close', 'open', 'high', 'low', 'vol']) & (
                             logical_name == 'daily'):
                         field_to_files_map[col + '_raw'] = logical_name
+                        continue
+                    if col == 'adj_factor':
+                        if logical_name == 'adj_factor':
+                            field_to_files_map[col] = logical_name
                         continue
                     if (col in ['amount']) & (
                             logical_name == 'daily'):
                         field_to_files_map[col] = logical_name
                         continue
                         # 'turnover_rate', 'circ_mv', 'total_mv'  这些是“纯净原材料”，它们是每日更新的、不依赖于财报发布时间的随时点（Point-in-Time）数据
-                    not_allow_load_fieds_for_not_fq = ['adj_factor', 'pe_ttm', 'pb', 'ps_ttm']
+                    not_allow_load_fieds_for_not_fq = ['pe_ttm', 'pb', 'ps_ttm']
                     not_allow_load_fieds_for_不知道内部逻辑_万一人家数据有前世偏差呢 = [ 'pe_ttm', 'pb', 'ps_ttm']
                     if (col in not_allow_load_fieds_for_not_fq or (col in not_allow_load_fieds_for_不知道内部逻辑_万一人家数据有前世偏差呢)):  #
-                        continue  # (f'严谨加载依赖报告日发布的数据{col} 非daily数据 ,请将config 用adj_factor的 from_daily配置 置为false，这样就不会此阶段加载了')
+                        continue
                     if col not in field_to_files_map:
                         field_to_files_map[col] = logical_name
             except Exception as e:
@@ -280,7 +282,7 @@ class DataLoader:
         aligned_data = self._align_dataframes(raw_wide_dfs)
 
         # aligned_data = self.rename_for_safe(aligned_data)
-        return aligned_data #close ——raw 已经 hfq 通过聚宽 比对 数据完全对上
+        return aligned_data
 
     def _align_dataframes(self, dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:  # ok
         """
@@ -296,8 +298,7 @@ class DataLoader:
             raise ValueError("居然所传需对齐数据是空的")
 
         # 【修复】选择基准表 - 优先选择价格数据，其次选择覆盖度最高的表
-        primary_candidates = ['close_hfq', 'open_hfq',
-                              'low_hfq']  # primary_candidates = ['close_raw', 'close', 'open_raw', 'open', 'high_raw', 'low_raw']
+        primary_candidates = ['close_raw', 'open_raw', 'high_raw', 'low_raw']
         base_key = None
         base_df = None
 
@@ -434,8 +435,6 @@ class DataLoader:
     #
     #     return renamed_data
     def fix_name_for_origin(self, field, logical_name):
-        if field.endswith('_hfq') & logical_name.endswith('_hfq'):
-            return field.replace('_hfq', '')
         if field.endswith('_raw') & (logical_name == 'daily'):
             return field.replace('_raw', '')
         return field

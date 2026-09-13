@@ -1699,14 +1699,33 @@ class FactorCalculator:
         )
 
         return single_q_long_df
-    #ok 能对上 聚宽数据
+    def _calculate_hfq_price(self, field: str) -> pd.DataFrame:
+        raw = self.factor_manager.get_raw_factor(field + '_raw')
+        factors = self.factor_manager.get_raw_factor('hfq_adj_factor')
+        # 延续 pro_bar 的两位小数口径，计算结果只进入已有因子缓存。
+        return (raw * factors).apply(
+            lambda column: column.map(lambda value: float(f'{value:.2f}'))
+        )
+
+    def _calculate_close_hfq(self) -> pd.DataFrame:
+        return self._calculate_hfq_price('close')
+
+    def _calculate_open_hfq(self) -> pd.DataFrame:
+        return self._calculate_hfq_price('open')
+
+    def _calculate_high_hfq(self) -> pd.DataFrame:
+        return self._calculate_hfq_price('high')
+
+    def _calculate_low_hfq(self) -> pd.DataFrame:
+        return self._calculate_hfq_price('low')
+
     def _calculate_pct_chg(self) -> pd.DataFrame:
         close_hfq = self.factor_manager.get_raw_factor('close_hfq').copy(deep=True)
         ret  = close_hfq.pct_change()
         return  ret
 
 
-    #daily_hfq亲测 后复权的close是可用的，因为涨跌幅跟聚宽一模一样！ 我们直接用，不需要下面这样复杂的计算！
+    # 以下为停用的分红事件推导实现；当前由原始行情乘复权因子计算。
     # #ok 对的上daily的pct_chg字段（ pct_chg, float, 涨跌幅【基于除权后的昨收计算的涨跌幅：（今收-除权昨收）/除权昨收
     # #也能和 t_bao_pct_chg 计算出来的数据对上！
     # def _calculate_pct_chg(self) -> pd.DataFrame:
@@ -1792,10 +1811,11 @@ class FactorCalculator:
     #     close_raw = self.factor_manager.get_raw_factor('close_raw')#当天真实价格
 
     def _calculate_hfq_adj_factor(self) -> pd.DataFrame:
-        close_raw  = self.factor_manager.get_raw_factor('close_raw').copy(deep=True)
-        close_hfq  = self.factor_manager.get_raw_factor('close_hfq').copy(deep=True)
-        ret = close_hfq/close_raw
-        return ret
+        factors = self.factor_manager.get_raw_factor('adj_factor')
+        close_raw = self.factor_manager.get_raw_factor('close_raw')
+        if (close_raw.notna() & (~np.isfinite(factors) | factors.le(0))).any().any():
+            raise ValueError('adj_factor: 有行情的位置缺少有效复权因子')
+        return factors
     def _calculate_vol_hfq(self) -> pd.DataFrame:
         ##
         # 复权成交量 = 原始成交量 / 复权因子

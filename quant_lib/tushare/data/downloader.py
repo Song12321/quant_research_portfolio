@@ -416,7 +416,6 @@ def download_dividend(name='分红送股'):
 
 # --- 4. 主下载逻辑 ---
 if __name__ == '__main__':
-    #todo daily_hfq 曾发生过 数据year字段重复问题！！ 务必重视
     if not MARKET_DATA_ROOT.is_dir():
         raise FileNotFoundError(f"市场数据根目录不存在: {MARKET_DATA_ROOT}")
 
@@ -447,9 +446,8 @@ if __name__ == '__main__':
         print(f"获取到 {year} 年全市场 {len(symbols)} 只股票作为处理对象。")
 
         data_to_download_tasks = {
-            # 模式: by_stock (逐个股票循环，适用于pro_bar等)
-            'daily_hfq': {'func': 'pro_bar', 'params': {'adj': 'hfq', 'asset': 'E'}, 'mode': 'by_stock',
-                          'api_type': 'ts'},
+            # 历史下载也只保存原始复权因子，不生成 daily_hfq。
+            'adj_factor': {'func': 'adj_factor', 'params': {}, 'mode': 'by_stock'},
             'margin_detail': {'func': 'margin_detail', 'params': {}, 'mode': 'by_stock'},  # <-- 修正下载模式为 'by_stock'
             'stk_limit': {'func': 'stk_limit', 'params': {}, 'mode': 'by_stock'},
 

@@ -90,6 +90,7 @@ def main() -> None:
 def temp():
     pro = ts.pro_api(TOKEN)
 
+    df = ts.pro_bar(ts_code='000001.SZ', adj='qfq', start_date='20180101', end_date='20181011')
 
     df = pro.suspend_d(ts_code='000670.SZ')
 

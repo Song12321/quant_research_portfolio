@@ -8,7 +8,7 @@ import pandas as pd
 from quant_lib.config.constant_config import MARKET_DATA_ROOT, get_market_data_path
 from quant_lib.config.logger_config import setup_logger
 from quant_lib.tushare.api_wrapper import (
-    RowLimitExceeded, call_pro_tushare_api, call_ts_tushare_api,
+    RowLimitExceeded, call_pro_tushare_api,
 )
 
 
@@ -25,7 +25,7 @@ _HM_DETAIL_FIELDS = (
 )
 _KEYS = {
     'trade_cal.parquet': ['exchange', 'cal_date'],
-    **{name: ['ts_code', 'trade_date'] for name in ('daily', 'daily_hfq', 'daily_basic', 'stk_limit')},
+    **{name: ['ts_code', 'trade_date'] for name in ('daily', 'adj_factor', 'daily_basic', 'stk_limit')},
     'balancesheet.parquet': _REPORT_KEY,
     'cashflow.parquet': _REPORT_KEY,
     'income.parquet': _REPORT_KEY,
@@ -178,23 +178,6 @@ def _fetch_by_range(fetch, start: str, end: str) -> pd.DataFrame:
         return _concat([left, right])
 
 
-def _fetch_daily_hfq(start: str, end: str) -> pd.DataFrame:
-    new = _concat(
-        _fetch_by_range(
-            lambda first, last: call_ts_tushare_api(
-                'pro_bar', max_retries=1, ts_code=code,
-                start_date=first, end_date=last, adj='hfq', asset='E',
-            ),
-            start, end,
-        )
-        for code in _symbols()
-    )
-    # 后复权行情沿用 datetime 日期格式；空结果直接交给调用方处理。
-    if not new.empty:
-        new['trade_date'] = pd.to_datetime(new['trade_date'], format='%Y%m%d')
-    return new
-
-
 def _update_daily(dataset: str, initial_date: str, end_date: str) -> int:
     start = _incremental_start(dataset, 'trade_date', initial_date, end_date)
     if start > end_date:
@@ -223,12 +206,19 @@ def update_daily(initial_date: str, end_date: str) -> int:
     return _update_daily('daily', initial_date, end_date)
 
 
-def update_daily_hfq(initial_date: str, end_date: str) -> int:
-    start = _incremental_start('daily_hfq', 'trade_date', initial_date, end_date)
+def update_adj_factor(initial_date: str, end_date: str) -> int:
+    """按交易日下载原始复权因子，按年增量保存，不生成复权行情。"""
+    start = _incremental_start('adj_factor', 'trade_date', initial_date, end_date)
     if start > end_date:
         return 0
-    new = _fetch_daily_hfq(start, end_date)
-    return _save_daily_by_year('daily_hfq', new)
+    frames = []
+    for date in read_trade_dates(start, end_date):
+        frame = _pro('adj_factor', trade_date=date)[['ts_code', 'trade_date', 'adj_factor']]
+        if (frame.empty or not frame['trade_date'].eq(date).all()
+                or frame.duplicated(['ts_code', 'trade_date']).any()):
+            raise ValueError(f'adj_factor: {date} 返回为空、日期不符或主键重复')
+        frames.append(frame)
+    return _save_daily_by_year('adj_factor', _concat(frames))
 
 
 def update_daily_basic(initial_date: str, end_date: str) -> int:
