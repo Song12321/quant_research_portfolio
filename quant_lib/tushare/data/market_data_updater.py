@@ -39,7 +39,6 @@ def _path(dataset: str) -> Path:
 
 
 def _pro(api: str, **params) -> pd.DataFrame:
-    logger.info('%s: params=%s', api, params)
     frame = call_pro_tushare_api(api, max_retries=3, **params)
     if not isinstance(frame, pd.DataFrame):
         raise TypeError(f'{api}: 接口必须返回 DataFrame')
@@ -171,6 +170,7 @@ def _fetch_by_range(fetch, start: str, end: str) -> pd.DataFrame:
         first = datetime.strptime(start, '%Y%m%d')
         last = datetime.strptime(end, '%Y%m%d')
         mid = first + timedelta(days=(last - first).days // 2)
+        logger.warning('【触发行数上限，自动分割】[%s, %s] -> [%s, %s] + [%s, %s]', start, end, start, mid.strftime('%Y%m%d'), (mid + timedelta(days=1)).strftime('%Y%m%d'), end)
         left = _fetch_by_range(fetch, start, mid.strftime('%Y%m%d'))
         right = _fetch_by_range(
             fetch, (mid + timedelta(days=1)).strftime('%Y%m%d'), end,
@@ -327,14 +327,50 @@ def update_stock_basic() -> int:
     return len(new)
 
 
+def update_index_classify() -> int:
+    """全量刷新申万2021版三级行业分类，全部校验成功后保存，返回拉取行数。"""
+    fields = 'index_code,industry_name,parent_code,level,industry_code,is_pub,src'
+    new = _pro('index_classify', src='SW2021', fields=fields)
+    missing = set(fields.split(',')) - set(new.columns)
+    if missing:
+        raise ValueError(f'index_classify: 缺少字段 {sorted(missing)}')
+    if (new.empty or new[fields.split(',')].isna().any().any()
+            or not new['level'].isin(['L1', 'L2', 'L3']).all()
+            or not new['src'].eq('SW2021').all()
+            or not new['index_code'].map(
+                lambda code: isinstance(code, str) and bool(code.strip())).all()):
+        raise ValueError('index_classify: 返回为空、字段缺失或分类数据非法')
+    if new['index_code'].duplicated().any():
+        raise ValueError('index_classify: 指数代码重复')
+    _save(_path('index_classify.parquet'), new)
+    return len(new)
+
+
 def update_industry_record() -> int:
-    # 完整刷新历史和当前成员记录，更新旧记录的退出日期。
-    new = _concat(_pro('index_member_all', ts_code=code, is_new=state)
-                  for code in _symbols() for state in ('N', 'Y'))
+    """按本地 SW2021 三级行业刷新历史和当前成员，返回拉取行数。"""
+    classify = pd.read_parquet(
+        _path('index_classify.parquet'), columns=['index_code', 'level', 'src'],
+    )
+    if classify.empty or not classify['src'].eq('SW2021').fillna(False).all():
+        raise ValueError('index_classify: 分类为空或不是 SW2021，请先更新行业分类')
+    codes = classify.loc[classify['level'] == 'L3', 'index_code']
+    if (codes.empty or codes.duplicated().any()
+            or not codes.map(lambda code: isinstance(code, str) and bool(code.strip())).all()):
+        raise ValueError('index_classify: L3 行业代码为空、非法或重复')
+    required = {'ts_code', 'l1_code', 'l2_code', 'l3_code', 'in_date', 'out_date'}
+    frames = []
+    for code in codes:
+        for state in ('N', 'Y'):
+            frame = _pro('index_member_all', l3_code=code, is_new=state)
+            if not frame.empty:
+                if not frame['l3_code'].eq(code).fillna(False).all():
+                    raise ValueError(f'industry_record: 返回的 L3 行业代码与请求 {code} 不一致')
+            frames.append(frame)
+    new = _concat(frames)
     if new.empty:
         raise ValueError('industry_record: 全市场行业历史返回空，停止更新')
     for column in ('in_date', 'out_date'):
-        new[column] = pd.to_datetime(new[column], format='%Y%m%d')
+        new[column] = pd.to_datetime(new[column], format='%Y%m%d', errors='raise')
     _save(_path('industry_record.parquet'), new.drop_duplicates())
     return len(new)
 

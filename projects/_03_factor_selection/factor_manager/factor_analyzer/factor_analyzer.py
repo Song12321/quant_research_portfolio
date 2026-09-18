@@ -9,7 +9,6 @@ from pandas import DataFrame, Series
 from projects._03_factor_selection.factor_manager.factor_composite.factor_synthesizer import (
     FactorSynthesizer,
 )
-from projects._03_factor_selection.factor_manager.factor_manager import FactorResultsManager
 from projects._03_factor_selection.utils.IndustryMap import PointInTimeIndustryMap
 from projects._03_factor_selection.utils.factor_processor import FactorProcessor
 from quant_lib import logger
@@ -73,7 +72,6 @@ class FactorAnalyzer:
         self.test_common_periods = evaluation["forward_periods"]
         self.n_quantiles = evaluation["quantiles"]
         self.factor_processor = FactorProcessor(self.config)
-        self.factor_results_manager = FactorResultsManager()
 
     # 执行 test_ic_analysis 对应逻辑。
     def test_ic_analysis(
@@ -180,7 +178,7 @@ class FactorAnalyzer:
             target_factor_name=factor_name,
             neutral_dfs=neutral_dfs,
             style_category=style_category,
-            pit_map=self.factor_manager.data_manager.pit_map,
+            pit_map=self.factor_manager.data_manager.get_preprocessing_industry_map(),
             need_standardize=True,
         )
 
@@ -238,7 +236,7 @@ class FactorAnalyzer:
     # 执行 prepare_data_for_entity_service 对应逻辑。
     def prepare_data_for_entity_service(
         self, factor_name: str, stock_pool_name: str
-    ) -> tuple[pd.DataFrame, bool, str, str, str, dict]:
+    ) -> tuple[pd.DataFrame, bool, dict]:
         data_manager = self.factor_manager.data_manager
         is_composite = data_manager.is_composite_factor(factor_name)
         if is_composite:
@@ -254,7 +252,7 @@ class FactorAnalyzer:
         unsupported = set(configured_calculators) - {"o2o"}
         if unsupported:
             raise ValueError(f"evaluation.returns_calculator 仅支持 o2o，实际: {sorted(unsupported)}")
-        open_df = data_manager.get_raw_field("open_hfq").reindex(
+        open_df = self.factor_manager.get_raw_factor("open_hfq").reindex(
             index=factor_data.index, columns=factor_data.columns
         )
         entry_mask = data_manager.stock_pools_dict[stock_pool_name].reindex(
@@ -270,18 +268,14 @@ class FactorAnalyzer:
         return (
             factor_data,
             is_composite,
-            data_manager.config["research_window"]["start_date"],
-            data_manager.config["research_window"]["end_date"],
-            data_manager.get_stock_pool_storage_name_by_name(stock_pool_name),
             {name: calculators[name] for name in configured_calculators},
         )
 
-    # 执行 test_factor_entity_service_route 对应逻辑。
-    def test_factor_entity_service_route(
+    def evaluate_factor(
         self, factor_name: str, stock_pool_index_name: str
     ) -> Dict[str, dict]:
-        """正式入口：只评价并保存 processed 信号。"""
-        factor_data, is_composite, start_date, end_date, storage_name, calculators = (
+        """计算并返回 processed 评估结果，不保存文件。"""
+        factor_data, is_composite, calculators = (
             self.prepare_data_for_entity_service(factor_name, stock_pool_index_name)
         )
         all_results = {}
@@ -292,14 +286,6 @@ class FactorAnalyzer:
                 stock_pool_index_name,
                 calculator,
                 already_processed=is_composite,
-            )
-            self.factor_results_manager._save_factor_results(
-                factor_name=factor_name,
-                stock_index=storage_name,
-                start_date=start_date,
-                end_date=end_date,
-                returns_calculator_func_name=calculator_name,
-                results=results,
             )
             all_results[calculator_name] = results
         return all_results

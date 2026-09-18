@@ -46,6 +46,7 @@ _DATASET_RELATIVE_PATHS = {
     'index_daily.parquet': Path('index/broad_market/quotes/index_daily.parquet'),
     'index_weights': Path('index/broad_market/constituents/index_weights'),
     'sw_basic_info.parquet': Path('index/shenwan/reference/sw_basic_info.parquet'),
+    'index_classify.parquet': Path('index/shenwan/reference/index_classify.parquet'),
     'sw_daily.parquet': Path('index/shenwan/quotes/sw_daily.parquet'),
 }
 

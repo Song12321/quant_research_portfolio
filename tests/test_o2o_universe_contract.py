@@ -24,10 +24,6 @@ class _DataManager:
         assert factor_name == "demo"
         return False
 
-    def get_raw_field(self, field_name: str) -> pd.DataFrame:
-        assert field_name == "open_hfq"
-        return self.open_hfq
-
     @staticmethod
     def get_stock_pool_storage_name_by_name(stock_pool_name: str) -> str:
         assert stock_pool_name == "POOL"
@@ -38,6 +34,10 @@ class _FactorManager:
     def __init__(self, data_manager: _DataManager, factor_data: pd.DataFrame):
         self.data_manager = data_manager
         self.factor_data = factor_data
+
+    def get_raw_factor(self, field_name):
+        assert field_name == "open_hfq"
+        return self.data_manager.open_hfq
 
     def get_prepare_aligned_factor_for_analysis(
         self, factor_name: str, stock_pool_name: str, for_test: bool
@@ -83,7 +83,7 @@ def test_o2o_uses_raw_future_open_without_relaxing_t_day_pool_membership():
         _DataManager(raw_open, entry_mask), factor_data
     )
 
-    prepared_factor, _, _, _, _, calculators = analyzer.prepare_data_for_entity_service(
+    prepared_factor, _, calculators = analyzer.prepare_data_for_entity_service(
         "demo", "POOL"
     )
     forward_returns = calculators["o2o"](period=1)

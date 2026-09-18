@@ -46,6 +46,7 @@ def market(tmp_path, monkeypatch):
 def make_factor_manager():
     data = DataManager.__new__(DataManager)
     data.data_loader = DataLoader(data_root=updater.MARKET_DATA_ROOT)
+    data.data_loader.trade_cal = data.data_loader._load_trade_cal()
     data.buffer_start_date = '20241231'
     data.research_end_date = '20250102'
     data.raw_dfs = data.data_loader.get_raw_dfs_by_require_fields(
@@ -100,11 +101,8 @@ def test_calculated_prices_match_installed_pro_bar(market):
     updater._save(updater._path('daily_hfq') / 'year=2024/data.parquet',
                   daily.assign(open=9999.0, close=9999.0, vol=9999.0))
     manager = make_factor_manager()
-    field_map = manager.data_manager.data_loader.field_map
-    assert 'daily_hfq' not in field_map.values()
-    assert field_map['adj_factor'] == 'adj_factor'
+    assert not hasattr(manager.data_manager.data_loader, 'field_map')
     for column in ['open', 'close', 'high', 'low']:
-        assert field_map[column + '_raw'] == 'daily'
         wanted = expected.pivot(index='trade_date', columns='ts_code', values=column)
         actual = manager.get_raw_factor(column + '_hfq')
         assert_frame_equal(actual, wanted)
@@ -157,7 +155,7 @@ def test_missing_raw_factors_do_not_fall_back_to_legacy(market):
     daily, _, _ = market
     updater._save(updater._path('daily_hfq') / 'year=2024/data.parquet', daily)
     manager = make_factor_manager()
-    with pytest.raises(ValueError, match='adj_factor'):
+    with pytest.raises(FileNotFoundError, match='adj_factor'):
         manager.get_raw_factor('close_hfq')
 
 
@@ -205,17 +203,15 @@ def test_prepare_and_stock_pool_use_raw_close(market, monkeypatch):
     data = make_factor_manager().data_manager
     data.research_start_date = '20241231'
     data.trading_dates = data.data_loader.get_trading_dates('20241231', '20250102')
-    data.config = {'stock_pool_profiles': {'ALL': {
+    data.config = {'stock_pool_name': 'ALL', 'stock_pool_profiles': {'ALL': {
         'index_filter': {'enable': False},
         'filters': {'history_days': 1, 'remove_st': False,
                     'adapt_tradeable_matrix_by_suspend_resume': False},
     }}}
-    monkeypatch.setattr(data, 'get_experiments_pool_names', lambda: ['ALL'])
     monkeypatch.setattr(data, 'show_stock_nums_for_per_day', lambda *args: None)
     module = 'projects._03_factor_selection.data_manager.data_manager'
     monkeypatch.setattr(module + '.PointInTimeIndustryMap', lambda: None)
-    monkeypatch.setattr(module + '.IS_DEBUG_TEMP', False)
-    data.prepare_basic_data()
-    assert set(data.raw_dfs) == {'close_raw', 'circ_mv', 'turnover_rate', 'list_date'}
+    data._prepare_stock_pool()
+    assert set(data.raw_dfs) == {'close_raw'}
     expected = data.raw_dfs['close_raw'].shift(1).notna().reindex(data.trading_dates)
     assert_frame_equal(data.stock_pools_dict['ALL'], expected)

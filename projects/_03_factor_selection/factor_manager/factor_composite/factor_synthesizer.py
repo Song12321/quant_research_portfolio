@@ -33,7 +33,7 @@ class FactorSynthesizer:
             factor_df_shifted=factor_shifted,
             target_factor_name=factor_name,
             neutral_dfs=neutral_dfs,
-            pit_map=self.factor_manager.data_manager.pit_map,
+            pit_map=self.factor_manager.data_manager.get_preprocessing_industry_map(),
             style_category=style_category,
             need_standardize=True,
         )

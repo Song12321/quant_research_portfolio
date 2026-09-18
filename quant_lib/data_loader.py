@@ -7,10 +7,8 @@
 
 import pandas as pd
 import numpy as np
-import pyarrow.parquet as pq
 from pathlib import Path
 from typing import Dict, List, Optional, Union, Tuple
-from collections import defaultdict
 
 from quant_lib import setup_logger
 from quant_lib.config.constant_config import MARKET_DATA_ROOT, get_market_data_path
@@ -28,32 +26,19 @@ class DataLoader:
     
     Attributes:
         data_root (Path): 市场数据根目录
-        cache (Dict): 数据缓存
-        field_map (Dict): 字段到数据源的映射
     """
 
     # ok
-    def __init__(self, data_root: Optional[Path] = None, use_cache: bool = True):
+    def __init__(self, data_root: Optional[Path] = None):
         """
         初始化数据加载器
         
         Args:
             data_root: 市场数据根目录，如果为None则使用默认路径
-            use_cache: 是否使用内存缓存
         """
         self.data_root = MARKET_DATA_ROOT if data_root is None else Path(data_root)
-        if not self.data_root.is_dir():
-            raise FileNotFoundError(f"市场数据根目录不存在: {self.data_root}")
-
         self.stock_data_root = self.data_root / 'stock'
-        if not self.stock_data_root.is_dir():
-            raise FileNotFoundError(f"股票数据目录不存在: {self.stock_data_root}")
-
-        self.available_columns_by_file = defaultdict(set)
-        self.field_map = self._build_field_map_to_file_name()
-        logger.info(f"字段->所在文件Name--映射构建完毕，共发现 {len(self.field_map)} 个字段")
-        # 在初始化时就加载交易日历，因为它是后续操作的基础(此处还没区分是否open，是全部
-        self.trade_cal = self._load_trade_cal()
+        self.trade_cal = None
 
     def check_local_date_period_completeness(self, file_to_fields, start_date, end_date):
         for logical_name, columns_to_need_load in file_to_fields.items():
@@ -92,63 +77,42 @@ class DataLoader:
         dates = pd.to_datetime(self.trade_cal.loc[mask, 'cal_date'].unique())
         return pd.DatetimeIndex(sorted(dates))  # 显式排序，确保有序
 
-    def _build_field_map_to_file_name(self) -> Dict[str, str]:
-        """
-        构建字段到数据源的映射
-        
-        Returns:
-            字段到数据源的映射字典
-        """
-        field_to_files_map = {}
+    def read_field(self, field, start_date, end_date, ts_codes=None):
+        """从明确的数据集读取字段，不扫描文件推断来源。"""
+        if field in ("open_raw", "close_raw", "high_raw", "low_raw", "vol_raw"):
+            dataset, column = "daily", field.removesuffix("_raw")
+        elif field == "amount":
+            dataset, column = "daily", field
+        elif field in ("circ_mv", "total_mv", "turnover_rate", "dv_ttm"):
+            dataset, column = "daily_basic", field
+        elif field == "adj_factor":
+            dataset, column = "adj_factor", field
+        elif field in ("list_date", "delist_date"):
+            dataset, column = "stock_basic.parquet", field
+        else:
+            raise ValueError(f"未定义字段读取方式: {field}")
+        return self._read_panel(dataset, column, start_date, end_date, ts_codes)
 
-        # 股票因子只登记股票目录，避免指数同名字段污染股票字段映射。
-        for file_path in self.stock_data_root.rglob('*.parquet'):
-            try:
-                # 只读取schema以获取列名
-                columns = pq.read_schema(file_path).names
-
-                # data.xxx 就是逻辑数据集名称（即：按年份分区的数据
-                if file_path.stem == 'data':
-                    # 分区数据
-                    logical_name = file_path.parent.parent.name
-                else:
-                    # 单文件
-                    logical_name = file_path.stem + '.parquet'
-                if logical_name == 'daily_hfq':
-                    continue
-                self.available_columns_by_file[logical_name].update(columns)
-
-                # 构建字段映射
-                for col in columns:
-                    if (col in ['total_mv', 'circ_mv', 'turnover_rate']) & (
-                            logical_name != 'daily_basic'):
-                        continue
-                    if (col in ['list_date', 'delist_date']) & (
-                            logical_name != 'stock_basic.parquet'):
-                        continue
-                    if (col in ['close', 'open', 'high', 'low', 'vol']) & (
-                            logical_name == 'daily'):
-                        field_to_files_map[col + '_raw'] = logical_name
-                        continue
-                    if col == 'adj_factor':
-                        if logical_name == 'adj_factor':
-                            field_to_files_map[col] = logical_name
-                        continue
-                    if (col in ['amount']) & (
-                            logical_name == 'daily'):
-                        field_to_files_map[col] = logical_name
-                        continue
-                        # 'turnover_rate', 'circ_mv', 'total_mv'  这些是“纯净原材料”，它们是每日更新的、不依赖于财报发布时间的随时点（Point-in-Time）数据
-                    not_allow_load_fieds_for_not_fq = ['pe_ttm', 'pb', 'ps_ttm']
-                    not_allow_load_fieds_for_不知道内部逻辑_万一人家数据有前世偏差呢 = [ 'pe_ttm', 'pb', 'ps_ttm']
-                    if (col in not_allow_load_fieds_for_not_fq or (col in not_allow_load_fieds_for_不知道内部逻辑_万一人家数据有前世偏差呢)):  #
-                        continue
-                    if col not in field_to_files_map:
-                        field_to_files_map[col] = logical_name
-            except Exception as e:
-                logger.error(f"读取文件 {file_path} 的元数据失败: {e}")
-
-        return field_to_files_map
+    def _read_panel(self, dataset, column, start_date, end_date, ts_codes):
+        # 股票基本信息是静态数据，其余已支持的数据集使用交易日主键。
+        keys = ["ts_code"] if dataset == "stock_basic.parquet" else ["ts_code", "trade_date"]
+        frame = pd.read_parquet(
+            get_market_data_path(dataset, self.data_root), columns=keys + [column]
+        )
+        frame = self.extract_during_period(frame, dataset, start_date, end_date)
+        if ts_codes is not None:
+            frame = frame[frame["ts_code"].isin(ts_codes)]
+        trading_dates = self.get_trading_dates(start_date, end_date)
+        if "trade_date" in keys:
+            # 沿用既有时段筛选和同日记录取最后一条的规则。
+            frame = frame[frame["trade_date"].isin(trading_dates)]
+            frame = frame.drop_duplicates(["trade_date", "ts_code"], keep="last")
+            return frame.pivot(index="trade_date", columns="ts_code", values=column)
+        series = frame.drop_duplicates("ts_code").set_index("ts_code")[column]
+        return pd.DataFrame(
+            np.tile(series.values, (len(trading_dates), 1)),
+            index=trading_dates, columns=series.index,
+        )
 
     # ok
     def get_raw_dfs_by_require_fields(self,
@@ -170,119 +134,13 @@ class DataLoader:
         """
         logger.info(f"开始加载数据: 字段={fields}, 时间范围={buffer_start_date}至{end_date}")
 
-        # 确定需要加载的数据集和字段
-        file_to_fields = defaultdict(list)
-        base_fields = ['ts_code', 'trade_date']
-
         if not fields:
             raise ValueError("加载原始数据时 fields 不得为空")
-
-        for field in sorted(set(fields)):
-            logical_name = self.field_map.get(field)
-            if logical_name is None:
-                raise ValueError(f"未找到字段 {field} 的数据源")
-
-            file_to_fields[logical_name].append(field)
-        # self.check_local_date_period_completeness(file_to_fields, start_date, end_date) todo 后面实盘开启
-        # 加载和处理数据
-        raw_wide_dfs = {}  # 装 宽化的df
-        raw_long_dfs = {}  # 原生的 从本地拿到的 key :文件，value：df（所有列！）
-        for logical_name, columns_to_need_load in file_to_fields.items():
-            try:
-                file_path = get_market_data_path(logical_name, self.data_root)
-
-                # 检查文件中实际存在的字段
-                columns_to_need_load = self.fix_names_for_origin(columns_to_need_load, logical_name)
-                available_columns = self.available_columns_by_file.get(logical_name)
-                if not available_columns:
-                    raise ValueError(f"数据源元数据缺失: logical_name={logical_name}")
-                missing_columns = sorted(set(columns_to_need_load) - available_columns)
-                if missing_columns:
-                    raise ValueError(
-                        f"数据源缺少必需字段: logical_name={logical_name}, "
-                        f"missing={missing_columns}, available={sorted(available_columns)}"
-                    )
-                if 'ts_code' not in available_columns:
-                    raise ValueError(f"数据源缺少面板主键: logical_name={logical_name}, field=ts_code")
-                columns_can_read = sorted(
-                    set(columns_to_need_load) |
-                    (set(base_fields) & available_columns)
-                )
-
-                # 加载数据
-                long_df = pd.read_parquet(
-                    file_path,
-                    columns=columns_can_read
-                )
-
-                # 时间筛选
-                long_df = self.extract_during_period(long_df, logical_name, buffer_start_date, end_date)
-
-                # 股票池筛选
-                if ts_codes is not None and 'ts_code' in long_df.columns:
-                    long_df = long_df[long_df['ts_code'].isin(ts_codes)]
-
-                raw_long_dfs[logical_name] = long_df
-
-            except Exception as e:
-                logger.error(f"处理数据集 {logical_name} 失败: {e}")
-                raise ValueError(f"处理数据集 {logical_name} 失败: {e}")
-
-        # --- 3. 将所有数据处理成统一的面板宽表格式 ---
-        trading_dates = self.get_trading_dates(buffer_start_date, end_date)
-        for field in sorted(fields):
-            logical_name = self.field_map.get(field)
-            if not logical_name or logical_name not in raw_long_dfs:
-                raise ValueError(f"未找到或加载失败: 字段 '{field}' 的数据源 '{logical_name}'")
-            source_df = raw_long_dfs[logical_name]
-            if 'trade_date' in source_df.columns:
-                # a) 对于本身就是每日更新的面板数据
-                df = source_df.copy()
-                df['trade_date'] = pd.to_datetime(df['trade_date'])
-                df = df[df['trade_date'].isin(trading_dates)]
-
-                # 明确地定义重复的键
-                duplicate_keys = ['trade_date', 'ts_code']
-
-                # 在转换前，先使用 drop_duplicates 进行清洗
-                # keep='last' 是一个重要的选择：我们假定文件末尾的记录是最新的、最准确的
-                unique_long_df = df.drop_duplicates(subset=duplicate_keys, keep='last')
-
-                # 确认没有重复项后，可以安全地进行转换
-                #  此时可以直接使用 pivot()，它比 pivot_table() 略快，且能再次验证唯一性
-                field_for_origin =   self.fix_name_for_origin(field, logical_name)
-                wide_df = unique_long_df.pivot(index='trade_date', columns='ts_code', values=field_for_origin)
-            else:
-                # b) 对于需要“广播”到每日的静态属性数据 (如name, industry)
-                logger.info(f"  正在将静态字段 '{field}' 广播到每日面板...")
-                static_series = source_df.drop_duplicates(subset=['ts_code']).set_index('ts_code')[field]
-
-                # #  方式（1）：直接广播
-                # for ts_code in wide_df.columns:
-                #     # 构造空 DataFrame，行是日期，列是股票代码
-                #     wide_df = pd.DataFrame(index=pd.DatetimeIndex(trading_dates), columns=static_series.index)
-                #     wide_df[ts_code] = static_series[ts_code]
-                # 方式2 更高效 类似铺砖
-                ##
-                # np.tile(A, (M, 1)) = 把一行数组 A，重复 M 行，不重复列」
-                #
-                # 也就是说：
-                #
-                # M 控制的是“你有多少行”（行方向“铺砖”）
-                #
-                # 1 表示“列不要扩展”（只保留原来的股票维度）#
-                wide_df = pd.DataFrame(
-                    data=np.tile(static_series.values, (len(trading_dates), 1)),  # 使用numpy.tile高效复制数据
-                    index=trading_dates,
-                    columns=static_series.index
-                )
-            raw_wide_dfs[field] = wide_df
-
-        # 对齐数据
-        aligned_data = self._align_dataframes(raw_wide_dfs)
-
-        # aligned_data = self.rename_for_safe(aligned_data)
-        return aligned_data
+        panels = {
+            field: self.read_field(field, buffer_start_date, end_date, ts_codes)
+            for field in sorted(set(fields))
+        }
+        return self._align_dataframes(panels)
 
     def _align_dataframes(self, dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:  # ok
         """

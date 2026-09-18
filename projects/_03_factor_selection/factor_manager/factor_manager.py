@@ -189,10 +189,10 @@ class FactorManager:
         self.apply_configured_direction = apply_configured_direction
         self.config = config or {}  # 保存配置，用于智能时间对齐
         self.results_dir = Path(results_dir)
-        self.results_dir.mkdir(parents=True, exist_ok=True)
 
         # 初始化组件
-        self.registry = FactorRegistry(registry_path)
+        self.registry_path = registry_path
+        self._registry = None
         self.classifier = FactorClassifier()
 
         # 测试结果缓存
@@ -200,6 +200,13 @@ class FactorManager:
         self.inner_resolved_directions: Dict[str, int] = {}
 
         logger.info("因子管理器初始化完成")
+
+    @property
+    def registry(self):
+        """仅在显式使用注册表功能时读取注册表。"""
+        if self._registry is None:
+            self._registry = FactorRegistry(self.registry_path)
+        return self._registry
 
     # 执行 clear_cache 对应逻辑。
     def clear_cache(self):
@@ -296,7 +303,7 @@ class FactorManager:
             method_to_call = getattr(self.calculator, calculation_method_name)
             # 【关键】将解析出的参数传递给计算函数
             raw_factor_df = method_to_call(**params)
-        elif not params and self.data_manager.can_load_raw_field(factor_name):
+        elif not params:
             log_warning(
                 f"{factor_name}高度重视---这是宽表 index为全交易日，所以：停牌期的行全是nan，请思考这突如其来的nan对下面公式计算是否有影响，有影响是否ffill解决 ")
             raw_factor_df = self.data_manager.get_raw_field(factor_name)

@@ -92,20 +92,13 @@ class FactorProcessor:
         # print("=" * 80 + "\n")
         log_flow_start(f"{target_factor_name}因子进入因子预处理...")
 
-        # 【调试输出】添加详细的数据统计
-        print(f"\n=== 🔍 调试 {target_factor_name} 预处理流程 ===")
-        print(f"输入数据形状: {factor_df_shifted.shape}")
-        print(f"输入非空值数量: {factor_df_shifted.notna().sum().sum()}")
-        print(f"输入非空值比例: {factor_df_shifted.notna().sum().sum() / (factor_df_shifted.shape[0] * factor_df_shifted.shape[1]):.3f}")
-
-        # 检查每日股票数量
-        daily_counts = factor_df_shifted.notna().sum(axis=1)
-        print(f"每日有效股票数统计: 均值={daily_counts.mean():.1f}, 最小={daily_counts.min()}, 最大={daily_counts.max()}")
-
         processed_target_factor_df = factor_df_shifted.copy()
 
-        if pit_map is None:
-            pit_map = PointInTimeIndustryMap()
+        if pit_map is None and any(
+            self.preprocessing_config.get(step, {}).get("by_industry") is not None
+            for step in ("winsorization", "standardization")
+        ):
+            raise ValueError("行业预处理已配置，但未提供历史行业映射")
         # 步骤1：去极值
         # print("2. 去极值处理...")
         processed_target_factor_df = self.winsorize_robust(processed_target_factor_df,pit_map)

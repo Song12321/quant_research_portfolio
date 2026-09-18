@@ -209,26 +209,22 @@ def test_composite_dependencies_require_earlier_same_pool_children():
         {"name": "combo", "action": "composite", "cal_require_base_fields": ["child"]},
     ]
     experiments = [
-        {"factor_name": "combo", "stock_pool_name": "ZZ800"},
-        {"factor_name": "child", "stock_pool_name": "ZZ800"},
+        {"factor_name": "combo"},
+        {"factor_name": "child"},
     ]
 
     with pytest.raises(ValueError, match="提前完成.*child"):
         EnhancedTestRunner._validate_composite_dependencies(experiments, definitions)
 
 
-def test_composite_dependencies_reject_different_child_pool():
-    definitions = [
-        {"name": "child", "action": "technical_calcu"},
-        {"name": "combo", "action": "composite", "cal_require_base_fields": ["child"]},
-    ]
+def test_experiments_reject_independent_stock_pools():
     experiments = [
         {"factor_name": "child", "stock_pool_name": "ZZ500"},
         {"factor_name": "combo", "stock_pool_name": "ZZ800"},
     ]
 
-    with pytest.raises(ValueError, match="股票池必须一致.*child"):
-        EnhancedTestRunner._validate_composite_dependencies(experiments, definitions)
+    with pytest.raises(ValueError, match="字段非法"):
+        EnhancedTestRunner._validate_experiments(experiments)
 
 
 def test_inner_direction_store_rejects_missing_and_duplicate_values():
