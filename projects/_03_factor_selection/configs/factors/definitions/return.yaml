@@ -4,4 +4,3 @@ factor_definition:
   style_category: return
   description: 每日收益率（后复权）。
   action: technical_calcu
-  time_alignment: shift

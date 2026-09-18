@@ -87,6 +87,8 @@ class DataLoader:
             dataset, column = "daily_basic", field
         elif field == "adj_factor":
             dataset, column = "adj_factor", field
+        elif field == "up_limit":
+            dataset, column = "stk_limit", field
         elif field in ("list_date", "delist_date"):
             dataset, column = "stock_basic.parquet", field
         else:

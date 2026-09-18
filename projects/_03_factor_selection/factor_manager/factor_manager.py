@@ -681,69 +681,10 @@ class FactorManager:
     #     return technical_df_dict, technical_category_dict, technical_school_dict
     # 跟股票池对齐，在股票池里面马上进行测试 处于快要到分析阶段，可以调用，因为理解确实需要对齐股票池。目前没发现什么场景不需要对其的，所i无脑掉 没错
     def get_raw_factor_for_analysis(self, factor_request: Union[str, tuple], for_test: bool = True):
-        """
-        【智能时间对齐】获取原始因子数据，根据配置自动处理时间偏移
-        
-        支持三种时间对齐模式：
-        - 'no_shift': 价格数据，保持T日值
-        - 'shift': 传统因子，需要shift到T-1
-        - 'pre_aligned': 事件因子，底层已校正时间
-        """
+        """返回 T 日收盘可得的因子；交易延迟统一由收益标签处理。"""
         if not for_test:
             raise ValueError('必须是用于测试前做的数据提取')
-
-        factor_with_direction = self.get_factor_by_rule(factor_request)
-        factor_name_str = factor_request[0] if isinstance(factor_request, tuple) else factor_request
-
-        # 【智能时间处理】从配置中获取时间对齐方式
-
-        time_alignment = self._get_factor_time_alignment(factor_name_str)
-        
-        if time_alignment == 'no_shift':
-            # 价格数据保持T日值，用于计算收益率
-            logger.info(f"{factor_request}: 价格数据保持T日值")
-            return factor_with_direction
-        elif time_alignment == 'pre_aligned':
-            # 事件因子，底层已校正时间，不再shift
-            logger.info(f"{factor_request}: 事件因子已预校正，保持原值")
-            return factor_with_direction
-        else:  # time_alignment == 'shift' 或默认
-            # 传统因子数据shift到T-1，用于交易决策
-            logger.info(f"{factor_request}: 因子数据shift到T-1，用于交易决策")
-            return factor_with_direction.shift(1)
-
-    # 执行 _get_factor_time_alignment 对应逻辑。
-    def _get_factor_time_alignment(self, factor_name: str) -> str:
-        """
-        【智能配置查找】获取因子的时间对齐配置
-        
-        优先级：
-        1. 配置文件中的显式声明
-        2. 价格数据自动识别
-        3. 默认shift处理
-        """
-        # 1. 从配置文件获取显式声明
-        factor_definitions = self.data_manager.config.get('factor_definition', [])
-        for factor_def in factor_definitions:
-            if factor_def.get('name') == factor_name:
-                alignment = factor_def.get('time_alignment')
-                if alignment:
-                    return alignment
-        
-        # 2. 价格数据自动识别（向后兼容）
-        price_data_names = {
-            'close_raw', 'close_hfq', 'close_hfq_filled',
-            'open_raw', 'open_hfq', 'open_hfq_filled',
-            'high_raw', 'high_hfq', 'high_hfq_filled',
-            'low_raw', 'low_hfq', 'low_hfq_filled',
-            'close', 'open', 'high', 'low'  # 简化命名
-        }
-        
-        if factor_name in price_data_names:
-            return 'no_shift'
-        
-        # 3. 默认处理：传统因子需要shift
-        return 'shift'
+        return self.get_factor_by_rule(factor_request)
 
     # 执行 get_prepare_aligned_factor_for_analysis 对应逻辑。
     def get_prepare_aligned_factor_for_analysis(self, factor_request: Union[str, tuple], stock_pool_index_name,
@@ -755,7 +696,7 @@ class FactorManager:
         if not for_test:
             raise ValueError('必须是用于测试前做的数据提取 因为这里的填充就在专门只给测试自身因子做的填充策略')
         REQUEST = self.check_and_return_right_request(factor_request, stock_pool_index_name)
-        # 1. 获取原始因子数据 t-1
+        # 1. 获取 T 日收盘可得的因子数据
         factor_data = self.get_raw_factor_for_analysis(REQUEST, for_test)
         #
         # self._validate_data_quality(factor_data, REQUEST, des='最原生数据') #这里检查意义不大！！因为原生计算出来的 随便一个shift252 都导致好多nan
@@ -774,7 +715,6 @@ class FactorManager:
         factor_name_str = factor_request[0] if isinstance(factor_request, tuple) else factor_request
         pool = self.data_manager.stock_pools_dict[stock_pool_index_name]
 
-        temp_date = my_align(factor_data, self.get_raw_factor('close_hfq').notna().shift(1))
         # self._validate_data_quality(temp_date,factor_name_str,'原生数据 仅对齐未停牌的close_df ')
         return fill_and_align_by_stock_pool(
             factor_name=factor_name_str,

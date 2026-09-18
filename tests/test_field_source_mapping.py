@@ -10,6 +10,7 @@ from quant_lib.data_loader import DataLoader
     ("amount", "daily", "amount"),
     *[(name, "daily_basic", name) for name in ("circ_mv", "total_mv", "turnover_rate", "dv_ttm")],
     ("adj_factor", "adj_factor", "adj_factor"),
+    ("up_limit", "stk_limit", "up_limit"),
     ("list_date", "stock_basic.parquet", "list_date"),
     ("delist_date", "stock_basic.parquet", "delist_date"),
 ])

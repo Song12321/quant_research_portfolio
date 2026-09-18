@@ -50,9 +50,8 @@ def calculate_forward_returns_tradable_o2o(period: int,
                                            entry_mask: pd.DataFrame,
                                            winsorize_limits: list = [0.025, 0.025]) -> pd.DataFrame:
     """
-    周三收盘算出来的因子！t-1
-    周四：t这一日：实际上是t-1的因子数据  （所以需要t日开盘价参与收益率计算
-    计算从 T 日开盘价到 T+period 日开盘价的未来收益率。
+    T 行对应 T 日收盘信号，T+1 开盘买入，T+period+1 开盘退出。
+    entry_mask 同样按信号日 T 索引，表示 T+1 的买入资格。
     包含了生存偏差过滤和截面去极值处理。
     """
     if not isinstance(entry_mask, pd.DataFrame):
@@ -69,8 +68,8 @@ def calculate_forward_returns_tradable_o2o(period: int,
     open_prices = open_df.copy(deep=True)
 
     # 1. 定义起点和终点价格 (逻辑核心)
-    start_price = open_prices
-    end_price = open_prices.shift(-period)
+    start_price = open_prices.shift(-1)
+    end_price = open_prices.shift(-(period + 1))
 
     # 2. 创建“未来存续”掩码
     survived_mask = start_price.notna() & end_price.notna()
@@ -78,7 +77,7 @@ def calculate_forward_returns_tradable_o2o(period: int,
     # 3. 计算原始收益率
     forward_returns_raw = (end_price / start_price) - 1
 
-    # 4. T 日股票池只限制建仓资格，不得用 T+period 的未来股票池删除标签
+    # 4. 信号日的 entry_mask 只限制次日建仓，不用未来退出日股票池删除标签。
     forward_returns_masked = forward_returns_raw.where(survived_mask & entry_mask)
 
     # 5. 在截面 (axis=1) 上进行去极值
@@ -1022,7 +1021,7 @@ def calculate_quantile_daily_returns(
 
     Args:
         factor_df (pd.DataFrame): 因子值DataFrame (index=date, columns=stock)。
-                                  这是T-1日的信息。
+                                  T 行是 T 日收盘信号，收益从 T+1 开盘开始。
         price_df (pd.DataFrame): 每日收盘价矩阵 (index=date, columns=stock)。
         n_quantiles (int): (关键字参数) 要划分的分位数数量。
 

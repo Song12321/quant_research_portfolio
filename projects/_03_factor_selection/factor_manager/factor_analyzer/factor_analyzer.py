@@ -124,57 +124,61 @@ class FactorAnalyzer:
     def analyze_processed_factor(
         self,
         factor_name: str,
-        factor_data_shifted: pd.DataFrame,
+        factor_data: pd.DataFrame,
         stock_pool_name: str,
         returns_calculator: Callable,
         already_processed: bool,
     ) -> dict:
         """生成正式研究所需且仅需的一组 processed 结果。"""
         if already_processed:
-            processed = factor_data_shifted
+            processed = factor_data
         else:
             processed = self._process_single_factor(
-                factor_name, factor_data_shifted, stock_pool_name
+                factor_name, factor_data, stock_pool_name
             )
 
         close_df = self.factor_manager.get_prepare_aligned_factor_for_analysis(
             "close_hfq", stock_pool_name, True
         )
+        # 预处理只依赖 T 日信息；完成后按 T+1 开盘条件确定评价样本。
+        entry_pool = self.factor_manager.data_manager.get_entry_pool(stock_pool_name)
+        evaluation_factor = processed.where(entry_pool)
         log_flow_start(f"因子 {factor_name} 的 processed 信号进入 IC、分层和换手测试")
         ic_series, ic_stats = self.test_ic_analysis(
-            processed, returns_calculator, close_df
+            evaluation_factor, returns_calculator, close_df
         )
         quantile_returns, quantile_stats = self.test_quantile_backtest(
-            processed, returns_calculator, close_df
+            evaluation_factor, returns_calculator, close_df
         )
         quantile_daily_returns = calculate_quantile_daily_returns(
-            processed, returns_calculator, self.n_quantiles
+            evaluation_factor, returns_calculator, self.n_quantiles
         )
         return {
+            # 保留未受 T+1 成交状态影响的信号，供复合因子后续合成、预处理。
             "processed_factor_df": processed,
             "ic_series_periods_dict_processed": ic_series,
             "ic_stats_periods_dict_processed": ic_stats,
             "quantile_returns_series_periods_dict_processed": quantile_returns,
             "q_daily_returns_df_processed": quantile_daily_returns,
             "quantile_stats_periods_dict_processed": quantile_stats,
-            "top_q_turnover_stats_periods_dict": self.test_turnover_result(processed),
+            "top_q_turnover_stats_periods_dict": self.test_turnover_result(evaluation_factor),
         }
 
     # 执行 _process_single_factor 对应逻辑。
     def _process_single_factor(
         self,
         factor_name: str,
-        factor_data_shifted: pd.DataFrame,
+        factor_data: pd.DataFrame,
         stock_pool_name: str,
     ) -> pd.DataFrame:
         neutral_dfs, style_category = self.prepare_data_for_process_factor(
             factor_name,
-            factor_data_shifted.index,
-            factor_data_shifted.columns,
+            factor_data.index,
+            factor_data.columns,
             stock_pool_name,
         )
         return self.factor_processor.process_factor(
-            factor_df_shifted=factor_data_shifted,
+            factor_df=factor_data,
             target_factor_name=factor_name,
             neutral_dfs=neutral_dfs,
             style_category=style_category,
@@ -228,9 +232,7 @@ class FactorAnalyzer:
                 stock_codes,
                 level=industry_level,
             )
-            neutral_dfs.update(
-                {name: frame.shift(1, fill_value=0) for name, frame in industry_dummies.items()}
-            )
+            neutral_dfs.update(industry_dummies)
         return neutral_dfs, style_category
 
     # 执行 prepare_data_for_entity_service 对应逻辑。
@@ -255,7 +257,7 @@ class FactorAnalyzer:
         open_df = self.factor_manager.get_raw_factor("open_hfq").reindex(
             index=factor_data.index, columns=factor_data.columns
         )
-        entry_mask = data_manager.stock_pools_dict[stock_pool_name].reindex(
+        entry_mask = data_manager.get_entry_pool(stock_pool_name).reindex(
             index=factor_data.index, columns=factor_data.columns
         )
         calculators = {

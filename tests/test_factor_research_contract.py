@@ -342,7 +342,7 @@ def test_neutralization_factors_are_a_strict_yaml_contract():
         invalid.get_configured_neutralization_factors()
 
 
-def test_industry_mad_skips_the_first_date_without_a_prior_industry_map():
+def test_industry_mad_queries_the_signal_date_including_first_date():
     processor = FactorProcessor(
         {
             "preprocessing": {
@@ -358,11 +358,15 @@ def test_industry_mad_skips_the_first_date_without_a_prior_industry_map():
             }
         }
     )
-    factor = pd.DataFrame([[1.0, 2.0]], columns=["a", "b"])
-
-    actual = processor.winsorize_robust(factor, pit_industry_map=object())
-
-    assert actual.loc[0].isna().all()
+    from unittest.mock import Mock
+    factor = pd.DataFrame([[1.0, 2.0]], index=pd.to_datetime(['20240102']), columns=["a", "b"])
+    industry = Mock()
+    industry.get_map_for_date.return_value = pd.DataFrame(
+        {'l1_code': ['L1', 'L1'], 'l2_code': ['L2', 'L2']}, index=['a', 'b']
+    )
+    actual = processor.winsorize_robust(factor, pit_industry_map=industry)
+    industry.get_map_for_date.assert_called_once_with(factor.index[0])
+    pd.testing.assert_frame_equal(actual, factor)
 
 
 class _MarketCapOnlyDataManager:
@@ -418,7 +422,7 @@ class _AlignmentDataManager:
     "factor_name",
     ["three_low_one_high_value", "three_low_one_high_improve"],
 )
-def test_three_low_one_high_daily_components_shift_before_o2o_label(factor_name):
+def test_three_low_one_high_daily_components_keep_signal_date(factor_name):
     definitions = load_factor_definitions(FACTOR_DEFINITION_DIR)
     raw_factor = pd.DataFrame(
         {"000001.SZ": [1.0, 2.0, 3.0]},
@@ -430,4 +434,4 @@ def test_three_low_one_high_daily_components_shift_before_o2o_label(factor_name)
 
     actual = manager.get_raw_factor_for_analysis(factor_name)
 
-    pd.testing.assert_frame_equal(actual, raw_factor.shift(1), check_exact=True)
+    pd.testing.assert_frame_equal(actual, raw_factor, check_exact=True)

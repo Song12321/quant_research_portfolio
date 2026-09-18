@@ -24,6 +24,10 @@ from projects._03_factor_selection.data_manager.suspend_state import (
     _build_suspend_eod_matrix,
 )
 from projects._03_factor_selection.data_manager.stock_history import apply_history_days_filter
+from projects._03_factor_selection.data_manager.entry_pool import (
+    apply_open_buy_filter,
+    build_open_tradeable_mask,
+)
 from projects._03_factor_selection.utils.IndustryMap import PointInTimeIndustryMap
 from quant_lib.data_loader import DataLoader
 from projects._03_factor_selection.utils.component_loader import IndexComponentLoader
@@ -135,6 +139,7 @@ class DataManager:
         self.raw_dfs = {}
         self.temporary_raw_dfs = {}
         self.stock_pools_dict = None
+        self._entry_pools = {}
         self._existence_matrix = None
         self.component_loader = None
 
@@ -272,6 +277,25 @@ class DataManager:
         self.stock_pools_dict = {
             pool_name: self.create_stock_pool(pool_config, pool_name)
         }
+        self._entry_pools.clear()
+
+    def get_entry_pool(self, pool_name: str) -> pd.DataFrame:
+        """T 行对应 T 日信号及 T+1 开盘买入资格，同次研究的所有因子共用。"""
+        if pool_name not in self._entry_pools:
+            pool = self.stock_pools_dict[pool_name]
+            tradeable = build_open_tradeable_mask(
+                load_suspend_d_df(), pool.index, list(pool.columns)
+            )
+            prices = [
+                self.get_raw_field(field).reindex(index=pool.index, columns=pool.columns)
+                for field in ('open_raw', 'up_limit')
+            ]
+            entry_pool = apply_open_buy_filter(pool, *prices, tradeable)
+            logger.info(
+                f'{pool_name} 开盘买入过滤剔除 {(pool & ~entry_pool).sum().sum()} 个股票日样本'
+            )
+            self._entry_pools[pool_name] = entry_pool
+        return self._entry_pools[pool_name]
 
     # institutional_profile   = stock_pool_profiles['institutional_profile']#为“基本面派”和“趋势派”因子，提供一个高市值、高流动性的环境
     # microstructure_profile = stock_pool_profiles['microstructure_profile']#用于 微观（量价/情绪）因子
@@ -360,7 +384,7 @@ class DataManager:
         """
         根据完整停复牌历史，构建每日收盘后的可交易状态矩阵。
 
-        该矩阵随后 shift(1)，仅用于 T-1 日终状态对 T 日开盘决策的约束。
+        T 行用于 T 日收盘后的选股决策。
         """
         if self._tradeable_matrix_by_suspend_resume is not None:
             logger.info(
@@ -436,7 +460,7 @@ class DataManager:
         self.st_matrix = st_matrix.astype(bool)
         return self.st_matrix
 
-    # 使用截至 T-1 收盘可观察到的有效交易日数，避免把 T 日收盘价用于 T 日选股。
+    # 使用截至 T 日收盘可观察到的有效交易日数。
     def _filter_by_history_days(self, stock_pool_df: pd.DataFrame, history_days: int) -> pd.DataFrame:
         filtered_pool = apply_history_days_filter(
             stock_pool_df,
@@ -450,12 +474,10 @@ class DataManager:
         self.build_st_period_from_namechange()
         if self.st_matrix is None:
             raise ValueError("    警告: 未能构建ST状态矩阵，无法过滤ST股票。")
-        # 【核心】将“历史真相”矩阵整体向前（未来）移动一天。 (因为st_matrix 是以据生效start_Day日计算的。t下单，只能用t-1的数据跑，t单日的st无法感知！
-        # 这确保了我们在T日做决策时，看到的是T-1日的真实状态 。
-        st_mask_shifted = self.st_matrix.shift(1, fill_value=False)
+        st_mask = self.st_matrix
         # 对齐两个DataFrame的索引和列，确保万无一失
         # join='left' 表示以stock_pool_df的形状为准
-        aligned_universe, aligned_st_status = stock_pool_df.align(st_mask_shifted, join='left',
+        aligned_universe, aligned_st_status = stock_pool_df.align(st_mask, join='left',
                                                                   fill_value=False)  # 至少做 行列 保持一致的对齐。 下面才做赋值！ #fill_value=False ：st_Df只能对应一部分的股票池_Df.股票池_Df剩余的行列 用false填充！
 
         # 将ST的股票从universe中剔除
@@ -480,16 +502,13 @@ class DataManager:
 
         existence_matrix = self._existence_matrix
 
-        # 2. 【核心】应用T-1原则
-        #    将整个“存在性”状态矩阵向前移动一天。
-        #    这样在T日决策时，使用的就是T-1日该股票是否存在的信息。
-        existence_mask_shifted = existence_matrix.shift(1, fill_value=False)
+        existence_mask = existence_matrix
 
         # 3. 安全对齐并应用过滤器
         #    fill_value=False 表示，如果一个股票在您的基础池中，
         #    但不在我们的存在性矩阵的考虑范围内，我们默认它不存在。
         aligned_pool, aligned_existence_mask = stock_pool_df.align(
-            existence_mask_shifted,
+            existence_mask,
             join='left',
             axis=None,
             fill_value=False
@@ -513,15 +532,13 @@ class DataManager:
         if self._tradeable_matrix_by_suspend_resume is None:
             raise ValueError("警告: 未能构建 _tradeable_matrix_by_suspend_resume 状态矩阵。")
 
-        # 矩阵 T 行表示 T 日收盘后的状态，不能用于 T 日开盘前的选股决策。
-        # shift(1) 后，T 日股票池只读取 T-1 日终状态；首行没有更早研究期行，
-        # 延续既有约定填 True。该掩码不是 T 日盘中任意时刻的实际成交能力。
-        tradeable_mask_shifted = self._tradeable_matrix_by_suspend_resume.shift(1, fill_value=True)
+        # T 日收盘状态用于 T 日信号；次日实际开盘资格由 entry_pool 处理。
+        tradeable_mask = self._tradeable_matrix_by_suspend_resume
 
         # 以股票池为左侧边界，避免停复牌数据增加或删除股票池的股票集合；
         # 未出现停复牌状态的单元格没有不可交易证据，延续原逻辑填 True。
         aligned_universe, aligned_tradeable_mask = stock_pool_df.align(
-            tradeable_mask_shifted,
+            tradeable_mask,
             join='left',
             fill_value=True
         )
@@ -536,10 +553,8 @@ class DataManager:
         """按流动性过滤 """
         turnover_df = self.get_raw_field('turnover_rate')
         # 【关键】股票池构建的时间逻辑：
-        # - 我们要构建T日的股票池（决定T日哪些股票可交易）
-        # - 但判断依据必须基于T-1及更早的信息
-        # - 因此这里需要shift(1)来获取T-1的换手率用于T日的决策
-        turnover_df = turnover_df.shift(1)
+        # - 构建 T 日收盘后的信号股票池。
+        # T 日收盘后使用当日换手率。
 
         # 1. 【确定样本】只保留 stock_pool_df 中为 True 的换手率数据
         # “只对当前股票池计算”
@@ -571,8 +586,7 @@ class DataManager:
             过滤后的动态股票池
         """
         mv_df = self.get_raw_field('circ_mv')
-        # 【关键】同样的逻辑：用T-1的市值数据来决定T日的股票池
-        mv_df = mv_df.shift(1)
+        # T 日收盘后使用当日市值。
 
         # 1. 【屏蔽】只保留在当前股票池(stock_pool_df)中的股票市值，其余设为NaN
         valid_mv = mv_df.where(stock_pool_df)
@@ -739,14 +753,10 @@ class DataManager:
         for date in index_stock_pool_df.index:
             current_date_ts = pd.to_datetime(date)
 
-            # 1. 【安全港原则】获取 T-1 日收盘后的成分股列表，作为 T 日的股票池
-            #    我们直接查询 T-1 日的成分股即可。 （我倒要看看你昨天在不在。
-            prev_date = current_date_ts - pd.Timedelta(days=1)
-
             # 2. 从加载器高效获取成分股集合 (内部有缓存，速度飞快)
-            daily_components = self.component_loader.get_members_on_date(prev_date, component_source_codes)
+            daily_components = self.component_loader.get_members_on_date(current_date_ts, component_source_codes)
             # print(f"基础数据每天目标指数内的股票数量{len(daily_components)}")
-            if not daily_components:  # 如果当天（T-1）获取不到成分股，则当天股票池为空
+            if not daily_components:
                 index_stock_pool_df.loc[date, :] = False
                 continue
 
@@ -840,9 +850,9 @@ class DataManager:
     def create_stock_pool(self, stock_pool_config_profile, pool_name):
         """按原有顺序过滤，返回每日可参与研究的股票掩码。"""
         logger.info(f"  构建{pool_name}动态股票池...")
-        # 用前一交易日价格建立股票池；首次读取同时建立对齐基准。
+        # 用 T 日收盘价格建立信号日股票池；首次读取同时建立对齐基准。
         close = self.get_raw_field('close_raw')
-        pool = close.shift(1).notna().reindex(self.trading_dates)
+        pool = close.notna().reindex(self.trading_dates)
         index_config = stock_pool_config_profile.get('index_filter', {})
         if index_config.get('enable', False):
             pool = self._build_dynamic_index_universe(pool, index_config['index_code'])
@@ -944,7 +954,6 @@ def fill_self(factor_name, df, _existence_matrix):
         # 填充为0：适用于成交量、换手率等交易行为数据
         # 不交易的日子，这些指标的真实值就是0
         if _existence_matrix is not None:
-            existence_mask_shifted = _existence_matrix.shift(1, fill_value=False)
             return df.where(_existence_matrix,
                             0)  # _existence_matrix为false（意味着无法交易（可能是停牌停牌导致的 将原值以及nan统统写为0 /无容置疑：但凡非交易的，这类数据（交易行为类 (换手率, 成交量, 振幅)） 缺失可以直接填0
         return df  # 不填充~

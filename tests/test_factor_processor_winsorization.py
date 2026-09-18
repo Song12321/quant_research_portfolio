@@ -90,7 +90,7 @@ def test_zero_mad_group_keeps_original_values():
     assert result.loc['2024-01-03', 'S5'] == 10.0
 
 
-def test_first_research_day_is_explicitly_excluded():
+def test_first_research_day_uses_current_industry():
     processor = build_processor(min_samples=2)
     factor = build_factor([1.0, 2.0])
     factor.iloc[0] = [3.0, 4.0]
@@ -98,14 +98,12 @@ def test_first_research_day_is_explicitly_excluded():
 
     result = processor.winsorize_robust(factor, StaticIndustryMap(industry_map))
 
-    assert result.iloc[0].isna().all()
-    assert processor.winsorization_exclusions[:2] == [
-        {'date': '2024-01-02', 'ts_code': code, 'reason': 'missing_previous_trading_day'}
-        for code in ['S1', 'S2']
-    ]
+    pd.testing.assert_series_equal(result.iloc[0], factor.iloc[0])
+    assert processor.winsorization_exclusions == []
 
 
-def test_industry_standardization_does_not_keep_first_day_raw_values():
+
+def test_industry_standardization_processes_first_signal_day():
     processor = build_processor(min_samples=2)
     processor.preprocessing_config['standardization'] = {
         'method': 'zscore',
@@ -121,7 +119,9 @@ def test_industry_standardization_does_not_keep_first_day_raw_values():
 
     result = processor._standardize_robust(factor, StaticIndustryMap(industry_map))
 
-    assert result.iloc[0].isna().all()
+    assert result.iloc[0].notna().all()
+    assert result.iloc[0].mean() == pytest.approx(0.)
+    assert result.iloc[0].std() == pytest.approx(1.)
 
 
 def test_mad_rejects_unused_quantile_range():

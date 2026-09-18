@@ -63,7 +63,7 @@ class FactorProcessor:
 
     # ok
     def process_factor(self,
-                       factor_df_shifted: pd.DataFrame,
+                       factor_df: pd.DataFrame,
                        target_factor_name: str,
                        neutral_dfs,
                        style_category: str,
@@ -82,7 +82,7 @@ class FactorProcessor:
         """
         # print("\n" + "=" * 30 + " 【进入 process_factor 调试模式】 " + "=" * 30)
         # print("--- 目标因子 (target_factor_df) 的最后5行 ---")
-        # print(factor_df_shifted.tail())
+        # print(factor_df.tail())
         #
         # print("\n--- 中性化风格因子 (neutral_dfs) 的最后5行 ---")
         # for name, df in neutral_dfs.items():
@@ -92,7 +92,7 @@ class FactorProcessor:
         # print("=" * 80 + "\n")
         log_flow_start(f"{target_factor_name}因子进入因子预处理...")
 
-        processed_target_factor_df = factor_df_shifted.copy()
+        processed_target_factor_df = factor_df.copy()
 
         if pit_map is None and any(
             self.preprocessing_config.get(step, {}).get("by_industry") is not None
@@ -324,7 +324,7 @@ class FactorProcessor:
         df = daily_factor_series.to_frame(name='factor')
         df.index.name = 'ts_code'
         merged_df = df.join(daily_industry_map, how='left')
-        # 不用其他日期或其他字段猜测行业；T-1 映射缺失的股票当日明确排除。
+        # 不用其他日期或其他字段猜测行业；T 日映射缺失的股票当日明确排除。
         missing_industry = merged_df[[primary_col, fallback_col]].isna().any(axis=1)
         self._record_winsorization_exclusions(
             date, merged_df.index[missing_industry], 'missing_industry'
@@ -396,8 +396,6 @@ class FactorProcessor:
         else:
             logger.info(
                 f"  执行分行业去极值 (主行业: {industry_config['primary_level']}, 当样本不足会自动回溯至: {industry_config['fallback_level']})...")
-            #  为了高效获取前一交易日，提前创建交易日序列
-            trading_dates_series = pd.Series(factor_data.index, index=factor_data.index)
 
             # 按天循环，在截面日上执行矢量化操作
             processed_data = {}
@@ -410,26 +408,8 @@ class FactorProcessor:
                     processed_data[date] = pd.Series(dtype=float)
                     log_warning(f"去极值过程中，发现当天{date}所有股票因子值都为空")
                     continue
-                    # 在循环内部，为每一天获取正确的历史地图
-                    #  获取 T-1 的日期
-                prev_trading_date = trading_dates_series.shift(1).loc[date]
-                # 处理回测第一天的边界情况
-                if pd.isna(prev_trading_date):
-                    # 没有 T-1 行业映射时不能沿用未经行业处理的原值，首日统一排除。
-                    self._record_winsorization_exclusions(
-                        date, daily_factor_series.index, 'missing_previous_trading_day'
-                    )
-                    processed_data[date] = pd.Series(
-                        np.nan, index=daily_factor_series.index, dtype=float
-                    )
-                    log_warning(
-                        f"去极值跳过 {date}：缺少前一交易日行业映射，"
-                        "不能输出未经行业 MAD 处理的因子值。"
-                    )
-                    continue
 
-                # 使用 T-1 的日期查询行业地图
-                daily_industry_map = pit_industry_map.get_map_for_date(prev_trading_date)
+                daily_industry_map = pit_industry_map.get_map_for_date(date)
 
                 processed_data[date] = self._winsorize_cross_section_fallback(
                     daily_factor_series=daily_factor_series,
@@ -818,7 +798,6 @@ class FactorProcessor:
         else:
             logger.info(
                 f"  执行分行业标准化 (主行业: {industry_config['primary_level']}, 回溯至: {industry_config['fallback_level']})...")
-            trading_dates_series = pd.Series(factor_data.index, index=factor_data.index)
 
             # Rank法通常在全市场进行才有意义，分行业Rank后不同行业的序无法直接比较。
             # 这里我们约定，分行业标准化主要针对Z-Score。
@@ -834,17 +813,7 @@ class FactorProcessor:
                     log_warning(f"标准化过程中，发现当天{date}所有股票因子值都为空( 如果是 微观结构因子&连续&10条以内 那:正常 因为微观结构因子 根据时间序列残差化(滑动取的均值)")
                     continue
 
-                # 在循环内部，为每一天获取正确的历史地图
-                #  获取 T-1 的日期
-                prev_trading_date = trading_dates_series.shift(1).loc[date]
-                # 处理回测第一天的边界情况
-                if pd.isna(prev_trading_date):
-                    # 与分行业去极值保持同一首日口径，不输出未经行业标准化的原值。
-                    processed_data[date] = pd.Series(index=daily_factor_series.index, dtype=float)
-                    continue
-
-                # 使用 T-1 的日期查询行业地图
-                daily_industry_map = pit_industry_map.get_map_for_date(prev_trading_date)
+                daily_industry_map = pit_industry_map.get_map_for_date(date)
                 processed_data[date] = self._standardize_cross_section_fallback(
                     daily_factor_series=daily_factor_series,
                     daily_industry_map=daily_industry_map,

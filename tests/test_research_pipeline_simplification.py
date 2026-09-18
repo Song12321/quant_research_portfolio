@@ -234,7 +234,7 @@ def test_pool_filter_order_is_unchanged(monkeypatch):
         "_build_dynamic_index_universe", "_filter_by_history_days", "_filter_st_stocks",
         "_filter_tradeable_matrix_by_suspend_resume", "_filter_by_liquidity", "_filter_by_market_cap",
     ]
-    pd.testing.assert_frame_equal(actual, close.shift(1).notna().reindex(manager.trading_dates))
+    pd.testing.assert_frame_equal(actual, close.notna().reindex(manager.trading_dates))
 
 
 def test_component_loader_reads_only_requested_index_files(monkeypatch):

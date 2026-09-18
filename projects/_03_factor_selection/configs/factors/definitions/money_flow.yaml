@@ -4,4 +4,3 @@ factor_definition:
   style_category: money_flow
   description: ' 大单或特大单净流入占比，反映了机构或主力资金的动向。持续的大单净流入可能预示着股价的上涨。'
   action: technical_calcu
-  time_alignment: shift
