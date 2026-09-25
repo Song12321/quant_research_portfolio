@@ -102,6 +102,30 @@ def test_runner_stage_order(monkeypatch):
     assert calls == ["run", "components", "data", "research", "summary"]
 
 
+def test_unknown_factor_stops_before_creating_run(monkeypatch):
+    runner = runner_module.EnhancedTestRunner()
+    config = runner._load_yaml_mapping(runner.research_config_path)
+    config["experiments"] = [{"factor_name": "missing_test_factor"}]
+    monkeypatch.setattr(runner, "_load_yaml_mapping", lambda _: config)
+    create_run = Mock()
+    monkeypatch.setattr(runner_module, "create_run_dir", create_run)
+
+    with pytest.raises(KeyError, match="missing_test_factor"):
+        runner._prepare_run("test")
+    create_run.assert_not_called()
+
+
+def test_missing_direction_stops_before_snapshot_write(tmp_path):
+    runner = runner_module.EnhancedTestRunner()
+    runner.run_dir = tmp_path
+    runner.direction_output_path = tmp_path / "directions.yaml"
+    runner.direction_output_path.write_text("factors: {}\n", encoding="utf-8")
+
+    with pytest.raises(KeyError, match="demo"):
+        runner._snapshot_direction_config([{"factor_name": "demo"}])
+    assert not (tmp_path / "resolved_factors.yaml").exists()
+
+
 def test_evaluator_returns_results_without_writing(tmp_path):
     evaluator = runner_module.FactorAnalyzer.__new__(runner_module.FactorAnalyzer)
     factor = pd.DataFrame([[1.0]])

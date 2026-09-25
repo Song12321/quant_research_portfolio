@@ -52,3 +52,12 @@ def test_factor_definition_loader_rejects_duplicate_names(tmp_path):
 
     with pytest.raises(ValueError, match="因子名称重复"):
         load_factor_definitions(tmp_path)
+
+
+@pytest.mark.parametrize("row", [None, [], "demo", {"style_category": "value"}])
+def test_invalid_definition_fails_without_repair(tmp_path, row):
+    (tmp_path / "value.yaml").write_text(
+        yaml.safe_dump({"factor_definition": [row]}), encoding="utf-8"
+    )
+    with pytest.raises((TypeError, KeyError)):
+        load_factor_definitions(tmp_path)

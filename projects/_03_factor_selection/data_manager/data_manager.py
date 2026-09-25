@@ -202,37 +202,23 @@ class DataManager:
             f"buffer_start={buffer_start.date()}"
         )
         return buffer_start.strftime('%Y%m%d')
+    #取因子预热天数
+    def _get_factor_preheat_trading_days(
+            self, factor_name: str, ancestors: set[str]
+    ) -> int:
 
-    # 执行 _get_factor_preheat_trading_days 对应逻辑。
-    def _get_factor_preheat_trading_days(self, factor_name: str, ancestors: set[str]) -> int:
-        if factor_name in ancestors:
-            raise ValueError(f"复合因子依赖存在循环: factor={factor_name}")
-        definitions = self.get_factor_definition(factor_name)
-        if len(definitions) != 1:
-            raise ValueError(f"因子预热期配置必须唯一: factor={factor_name}, count={len(definitions)}")
-        definition = definitions.iloc[0]
+        definition = self.get_factor_definition(factor_name).iloc[0]
+
         if definition['action'] == 'composite':
             children = definition['cal_require_base_fields']
-            if not isinstance(children, list) or not children:
-                raise ValueError(f"复合因子缺少非空子因子列表: factor={factor_name}")
-            next_ancestors = ancestors | {factor_name}
-            return max(self._get_factor_preheat_trading_days(name, next_ancestors) for name in children)
-        if 'preheat_trading_days' not in definition.index:
-            raise ValueError(f"基础因子缺少 preheat_trading_days: factor={factor_name}")
-        preheat_days = definition['preheat_trading_days']
-        if (
-            isinstance(preheat_days, bool)
-            or not isinstance(preheat_days, (int, float, np.integer, np.floating))
-            or not np.isfinite(preheat_days)
-            or preheat_days <= 0
-            or not float(preheat_days).is_integer()
-        ):
-            raise ValueError(
-                f"基础因子 preheat_trading_days 必须为正整数: "
-                f"factor={factor_name}, actual={preheat_days!r}"
+            return max(
+                self._get_factor_preheat_trading_days(
+                    child, ancestors | {factor_name}
+                )
+                for child in children
             )
-        return int(preheat_days)
 
+        return  definition['preheat_trading_days']
 
     # 执行 get_raw_field 对应逻辑。
     def get_raw_field(self, field_name: str) -> pd.DataFrame:

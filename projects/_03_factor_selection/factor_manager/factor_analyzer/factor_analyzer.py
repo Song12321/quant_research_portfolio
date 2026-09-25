@@ -66,9 +66,6 @@ class FactorAnalyzer:
 
     # 执行 __init__ 对应逻辑。
     def __init__(self, factor_manager):
-        if factor_manager is None or factor_manager.data_manager is None:
-            raise ValueError("FactorAnalyzer 必须传入已绑定 DataManager 的 FactorManager")
-
         self.factor_manager = factor_manager
         self.config = factor_manager.data_manager.config
         evaluation = self.config["evaluation"]
@@ -271,9 +268,6 @@ class FactorAnalyzer:
 
         # 这里只组装受支持的 O2O 计算器；其他收益口径立即报错。
         configured_calculators = data_manager.config["evaluation"]["returns_calculator"]
-        unsupported = set(configured_calculators) - {"o2o"}
-        if unsupported:
-            raise ValueError(f"evaluation.returns_calculator 仅支持 o2o，实际: {sorted(unsupported)}")
         # 将后复权开盘价和次日买入资格对齐到信号网格，后续各周期共用。
         open_df = self.factor_manager.get_raw_factor("open_hfq").reindex(
             index=factor_data.index, columns=factor_data.columns

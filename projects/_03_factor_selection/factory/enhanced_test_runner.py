@@ -148,17 +148,12 @@ class EnhancedTestRunner:
         if not isinstance(profiles, dict) or config["stock_pool_name"] not in profiles:
             raise ValueError("stock_pool_name 必须存在于 stock_pool_profiles")
         self._require_non_empty_string(config, "experiment_name")
-        self._require_non_empty_string(config, "output_root")
         # 所有相对路径都以入口 YAML 所在目录解析，避免受启动工作目录影响。
         output_root = self._resolve_config_path(config, "output_root")
         factor_dir = self._resolve_config_path(config, "factor_definition_dir")
         self.direction_output_path = self._resolve_config_path(config, "direction_output_file")
-        # 按文件名顺序加载分类定义，校验风格分类和重名，再确认实验因子全部有定义。
+        # 按文件名顺序加载分类定义，校验风格分类和重名。
         definitions = load_factor_definitions(factor_dir)
-        definition_names = [row.get("name") for row in definitions if isinstance(row, dict)]
-        missing = sorted(set(row["factor_name"] for row in experiments) - set(definition_names))
-        if missing:
-            raise ValueError(f"因子配置缺少 Inner 目标因子定义: factors={missing}")
         # 将解析后的定义和路径回填为实际运行配置，供各组件使用并保存快照。
         config["factor_definition"] = definitions
         config["output_root"] = str(output_root)
@@ -203,11 +198,8 @@ class EnhancedTestRunner:
     def _snapshot_direction_config(self, results: List[Dict]) -> None:
         # 全部完成后保存一次方向快照；每个因子的方向已及时持久化。
         document = self._load_yaml_mapping(self.direction_output_path)
-        factors = document.get("factors")
+        factors = document["factors"]
         names = [row["factor_name"] for row in results]
-        # 本轮任一因子缺少持久化方向都视为失败，不生成不完整的方向快照。
-        if not isinstance(factors, dict) or any(name not in factors for name in names):
-            raise RuntimeError(f"方向配置缺少本次 Inner 结果: factors={names}")
         # 只截取本轮已完成因子，保留每个因子的方向、统计依据和来源运行标识。
         snapshot = {"factors": {name: factors[name] for name in names}}
         target = self.run_dir / "resolved_factors.yaml"
@@ -282,10 +274,8 @@ class EnhancedTestRunner:
     @staticmethod
     def _validate_inner_evaluation(evaluation: object) -> None:
         # 仅允许有效的 inner 评估配置：正整数周期、无重复、固定 o2o 计算方式。
-        if not isinstance(evaluation, dict):
-            raise ValueError("inner.yaml.evaluation 必须是映射")
         # 周期必须是非空的正整数列表；bool 虽属于 int 子类，也不能作为天数。
-        periods = evaluation.get("forward_periods")
+        periods = evaluation["forward_periods"]
         if not isinstance(periods, list) or not periods:
             raise ValueError("inner.yaml.evaluation.forward_periods 必须是非空列表")
         if any(isinstance(period, bool) or not isinstance(period, int) or period <= 0 for period in periods):
@@ -299,8 +289,6 @@ class EnhancedTestRunner:
     @staticmethod
     def _load_yaml_mapping(path: Path) -> dict[str, Any]:
         # 安全读取 YAML 并确认结果为字典结构，拒绝非法文件内容。
-        if not path.is_file():
-            raise FileNotFoundError(f"配置文件不存在: {path}")
         payload = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise ValueError(f"配置文件必须是 YAML 映射: {path}")
