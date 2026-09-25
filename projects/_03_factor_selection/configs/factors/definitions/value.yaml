@@ -25,7 +25,7 @@ factor_definition:
   style_category: value
   description: 三低一高-低股价：长周期价格分位 + 当期价格水平。
   action: technical_calcu
-  preheat_trading_days: 1320
+  preheat_trading_days: 120
 - name: three_low_one_high_lowattn
   style_category: value
   description: 三低一高-低关注代理：低换手率与低20日平均成交额。

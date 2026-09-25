@@ -66,6 +66,7 @@ def test_entry_pool_integrates_data_source_cache_and_future_exit_contract(monkey
     opening.loc[opening.index[2], 'DOWN'] = 8.1
     upper.loc[opening.index[2], 'DOWN'] = 9.9
     manager = DataManager({'research_window': {'start_date': '20240102', 'end_date': '20240103'}})
+    manager.config['stock_pool_profiles'] = {'ALL': {'filters': {'remove_st': False}}}
     manager.stock_pools_dict = {'ALL': pool}
     fields = {'open_raw': opening, 'up_limit': upper}
     manager.get_raw_field = Mock(side_effect=fields.__getitem__)

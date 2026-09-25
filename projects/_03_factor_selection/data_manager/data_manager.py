@@ -248,6 +248,12 @@ class DataManager:
             tradeable = build_open_tradeable_mask(
                 load_suspend_d_df(), pool.index, list(pool.columns)
             )
+            if self.config['stock_pool_profiles'][pool_name]['filters']['remove_st']:
+                # 自然日先后移一天，再对齐交易日，周末公告可阻止周一买入。
+                st_before_open = self.st_matrix.shift(1, freq='D').reindex(
+                    index=pool.index, columns=pool.columns,
+                )
+                tradeable = tradeable & ~st_before_open
             prices = [
                 self.get_raw_field(field).reindex(index=pool.index, columns=pool.columns)
                 for field in ('open_raw', 'up_limit')
@@ -365,52 +371,48 @@ class DataManager:
         self._tradeable_matrix_by_suspend_resume = tradeable_matrix.astype(bool)
         return self._tradeable_matrix_by_suspend_resume
 
-    # ok
     def build_st_period_from_namechange(
             self,
     ) -> pd.DataFrame:
-        """
-         根据namechange历史，重建每日“已知风险”状态矩阵。
-         此版本通过searchsorted隐式处理初始状态，逻辑最简且结果正确。
-         """
-        if self.st_matrix is not None:
-            logger.info("self.st_matrix 之前已经被初始化，无需再次加载（这是全量数据，一次加载即可")
-            return self.st_matrix
+        """按自然日重建公告收盘后已知的 ST 状态，供信号池及次日买入过滤使用。"""
         logger.info("正在根据名称变更历史，重建每日‘已知风险’状态st矩阵...")
-        # 数据准备 获取所有股票和交易日期
+        # 多取前一自然日，供研究首日读取开盘前状态。
         ts_codes = list(set(self.get_stock_codes()))
-        trading_dates = self.data_loader.get_trading_dates(start_date=self.research_start_date,
-                                                           end_date=self.research_end_date)
+        calendar_dates = pd.date_range(
+            pd.Timestamp(self.research_start_date) - pd.Timedelta(days=1),
+            self.research_end_date,
+        )
         namechange_df = self.get_namechange_data()
 
         # --- 1. 准备工作 ---
-        if not trading_dates._is_monotonic_increasing:
-            trading_dates = trading_dates.sort_values(ascending=True)
-
-        # 【关键】必须按“生效日”排序，以确保状态的正确延续和覆盖
-        namechange_df['start_date'] = pd.to_datetime(namechange_df['start_date'])
-        namechange_df = namechange_df.sort_values(by=['ts_code', 'start_date'], inplace=False)
+        namechange_df = namechange_df.copy()
+        namechange_df['ann_date'] = pd.to_datetime(namechange_df['ann_date'])
+        # 2020 年起，同一股票同一公告日不得出现相反的 ST 状态。
+        recent = namechange_df.loc[namechange_df['ann_date'] >= pd.Timestamp('2020-01-01')]
+        states = recent['name'].str.upper().str.contains('ST', regex=False)
+        conflicts = states.groupby([recent['ts_code'], recent['ann_date']]).nunique()
+        conflicts = conflicts[conflicts > 1]
+        if not conflicts.empty:
+            raise ValueError(f"同一股票同一公告日存在冲突的 ST 状态：{conflicts.index.tolist()}")
 
         # 【关键】必须用 np.nan 初始化，作为“未知状态”
-        st_matrix = pd.DataFrame(np.nan, index=trading_dates, columns=ts_codes)
+        st_matrix = pd.DataFrame(pd.NA, index=calendar_dates, columns=ts_codes, dtype='boolean')
 
         # --- 2. “打点”：一个循环处理所有历史事件 ---
         for ts_code, group in namechange_df.groupby('ts_code'):
-            group_sorted = group.sort_values(by='start_date')
+            group_sorted = group.sort_values(by='ann_date')
             for _, row in group_sorted.iterrows():
-                start_date = row['start_date']
+                ann_date = row['ann_date']
 
-                # 发生在回测期前的日期，会被自动映射到位置 0  or 发生在回测期内的日期，会被映射到它对应的正确位置
-                start_date_loc = trading_dates.searchsorted(start_date,
-                                                            side='left')  # 遍历trading_dates找到首个>=start_date的下标！ 如果是rigths ：则首个>的下标
+                # 研究期前的公告依次覆盖首日，期内公告写入对应自然日。
+                ann_date_loc = calendar_dates.searchsorted(ann_date,
+                                                          side='left')
 
                 # 只处理那些能影响到我们回测周期的事件
-                if start_date_loc < len(trading_dates):
+                if ann_date_loc < len(calendar_dates):
                     name_upper = row['name'].upper()
                     is_risk_event = 'ST' in name_upper
-                    # 使用.iloc进行赋值
-                    start_trade_date = pd.DatetimeIndex(trading_dates)[start_date_loc]
-                    st_matrix.loc[start_trade_date, ts_code] = is_risk_event
+                    st_matrix.loc[calendar_dates[ann_date_loc], ts_code] = is_risk_event
 
         # --- 3. “传播”与“收尾” ---
         st_matrix = st_matrix.ffill(inplace=False)
@@ -427,6 +429,7 @@ class DataManager:
             self.get_raw_field('close_raw') if history_days else None,
             history_days,
         )
+        self.show_stock_nums_for_per_day(f'_filter_by_history_days',filtered_pool)
         return filtered_pool
 
     # ok 已经处理前视偏差
@@ -443,6 +446,7 @@ class DataManager:
         # 将ST的股票从universe中剔除
         # aligned_st_status为True的地方，在universe中就应该为False
         aligned_universe[aligned_st_status] = False
+        self.show_stock_nums_for_per_day(f'_filter_st_stocks',aligned_universe)
 
         return aligned_universe
 
@@ -528,6 +532,7 @@ class DataManager:
 
         # 4. 将需要剔除的股票在 stock_pool_df 中设为 False
         stock_pool_df[low_liquidity_mask] = False
+        self.show_stock_nums_for_per_day(f'_filter_by_liquidity',stock_pool_df)
 
         return stock_pool_df
 
@@ -537,13 +542,9 @@ class DataManager:
                               min_percentile: float) -> pd.DataFrame:
         """
         按市值过滤 -
-
         Args:
             stock_pool_df: 动态股票池
             min_percentile: 市值最低百分位阈值
-
-        Returns:
-            过滤后的动态股票池
         """
         mv_df = self.get_raw_field('circ_mv')
         # T 日收盘后使用当日市值。
@@ -562,6 +563,7 @@ class DataManager:
         # 4. 【应用过滤】将所有市值小于当日阈值的股票，在股票池中标记为False
         # 这是一个跨越整个DataFrame的布尔运算，极其高效
         stock_pool_df[mv_mask] = False
+        self.show_stock_nums_for_per_day(f'_filter_by_market_cap',stock_pool_df)
 
         return stock_pool_df
 
@@ -741,8 +743,12 @@ class DataManager:
     def get_namechange_data(self) -> pd.DataFrame:
         """获取name改变的数据"""
         namechange_path = get_market_data_path('namechange.parquet')
+        namechange_df = pd.read_parquet(namechange_path)
+        namechange_df['ann_date'] = pd.to_datetime(namechange_df['ann_date'])
+        namechange_df = namechange_df.sort_values(by=['ts_code', 'ann_date'], inplace=False)
+        return namechange_df
 
-        return pd.read_parquet(namechange_path)
+
 
     # 执行 save_data_summary 对应逻辑。
     def save_data_summary(self, output_dir: str):
@@ -784,13 +790,13 @@ class DataManager:
         print(f"数据摘要已保存到: {summary_path}")
 
     # 执行 show_stock_nums_for_per_day 对应逻辑。
-    def show_stock_nums_for_per_day(self, describe_text, pool_df):
+    def show_stock_nums_for_per_day(self, describe_text, pool_df, simplePrint):
         daily_count = pool_df.sum(axis=1)
         logger.info(f"    {describe_text}动态股票池:")
-        logger.info(f"      平均每日股票数: {daily_count.mean():.0f}")
-        logger.info(f"      最少每日股票数: {daily_count.min():.0f}")
-        logger.info(f"      最多每日股票数: {daily_count.max():.0f}")
-        # 统计过滤后的覆盖度
+        logger.info(f"      平均每日股票数: {daily_count.mean():.0f} --- 最少每日股票数: {daily_count.min():.0f} --- 最多每日股票数: {daily_count.max():.0f}")
+
+        if simplePrint:
+           return
         total_cells = pool_df.size
         valid_cells = (pool_df != False).sum().sum()
         coverage = valid_cells / total_cells if total_cells > 0 else 0
@@ -820,7 +826,7 @@ class DataManager:
         if 'history_days' not in filters:
             raise ValueError("股票池 filters 缺少必填字段 history_days。")
         pool = self._filter_by_history_days(pool, filters['history_days'])
-        if filters['remove_st']: #todo
+        if filters['remove_st']:
             pool = self._filter_st_stocks(pool)
         # 分位数依赖此前过滤后的股票池，流动性和市值过滤不可交换。
         if filters.get('min_liquidity_percentile', 0) > 0:
