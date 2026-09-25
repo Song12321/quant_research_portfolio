@@ -516,6 +516,11 @@ class DataManager:
     def _filter_by_liquidity(self, stock_pool_df: pd.DataFrame, min_percentile: float) -> pd.DataFrame:
         """按流动性过滤 """
         turnover_df = self.get_raw_field('turnover_rate')
+        turnover_df = turnover_df.reindex(index=stock_pool_df.index, columns=stock_pool_df.columns)
+        missing = stock_pool_df & turnover_df.isna()
+        if missing.to_numpy().any():
+            row, col = np.argwhere(missing.to_numpy())[0]
+            raise ValueError(f"股票池内 turnover_rate 缺失：日期={missing.index[row]}，股票={missing.columns[col]}")
         # 【关键】股票池构建的时间逻辑：
         # - 构建 T 日收盘后的信号股票池。
         # T 日收盘后使用当日换手率。
@@ -547,6 +552,11 @@ class DataManager:
             min_percentile: 市值最低百分位阈值
         """
         mv_df = self.get_raw_field('circ_mv')
+        mv_df = mv_df.reindex(index=stock_pool_df.index, columns=stock_pool_df.columns)
+        missing = stock_pool_df & mv_df.isna()
+        if missing.to_numpy().any():
+            row, col = np.argwhere(missing.to_numpy())[0]
+            raise ValueError(f"股票池内 circ_mv 缺失：日期={missing.index[row]}，股票={missing.columns[col]}")
         # T 日收盘后使用当日市值。
 
         # 1. 【屏蔽】只保留在当前股票池(stock_pool_df)中的股票市值，其余设为NaN
