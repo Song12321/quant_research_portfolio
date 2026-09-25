@@ -219,11 +219,11 @@ class DataManager:
         return  definition['preheat_trading_days']
 
     def get_raw_field(self, field_name: str) -> pd.DataFrame:
-        """直接读取研究窗口内的字段，不缓存；非价格基准字段对齐收盘价网格。"""
+        """直接读取研究窗口内的字段，不缓存；收盘价和成交额保留原始网格，其余对齐收盘价。"""
         df = self.data_loader.read_field(
             field_name, self.buffer_start_date, self.research_end_date,
         )
-        if field_name == 'close_raw':
+        if field_name in ('close_raw', 'amount'):
             return df
         close = self.data_loader.read_field(
             'close_raw', self.buffer_start_date, self.research_end_date,
@@ -407,7 +407,7 @@ class DataManager:
                 # 只处理那些能影响到我们回测周期的事件
                 if start_date_loc < len(trading_dates):
                     name_upper = row['name'].upper()
-                    is_risk_event = 'ST' in name_upper or name_upper.startswith('S')
+                    is_risk_event = 'ST' in name_upper
                     # 使用.iloc进行赋值
                     start_trade_date = pd.DatetimeIndex(trading_dates)[start_date_loc]
                     st_matrix.loc[start_trade_date, ts_code] = is_risk_event
@@ -809,9 +809,9 @@ class DataManager:
     def create_stock_pool(self, stock_pool_config_profile, pool_name):
         """按原有顺序过滤，返回每日可参与研究的股票掩码。"""
         logger.info(f"  构建{pool_name}动态股票池...")
-        # 用 T 日收盘价格建立信号日股票池；按实际收盘价数据建立网格。
-        close = self.get_raw_field('close_raw')
-        pool = close.notna().reindex(self.trading_dates)
+        # T 日有正成交额的股票进入信号日候选池。
+        amount = self.get_raw_field('amount')
+        pool = amount.reindex(self.trading_dates).gt(0)
         index_config = stock_pool_config_profile.get('index_filter', {})
         if index_config.get('enable', False):
             pool = self._build_dynamic_index_universe(pool, index_config['index_code'])
@@ -820,10 +820,8 @@ class DataManager:
         if 'history_days' not in filters:
             raise ValueError("股票池 filters 缺少必填字段 history_days。")
         pool = self._filter_by_history_days(pool, filters['history_days'])
-        if filters['remove_st']:
+        if filters['remove_st']: #todo
             pool = self._filter_st_stocks(pool)
-        if filters['adapt_tradeable_matrix_by_suspend_resume']:
-            pool = self._filter_tradeable_matrix_by_suspend_resume(pool)
         # 分位数依赖此前过滤后的股票池，流动性和市值过滤不可交换。
         if filters.get('min_liquidity_percentile', 0) > 0:
             pool = self._filter_by_liquidity(pool, filters['min_liquidity_percentile'])

@@ -23,7 +23,7 @@ if __name__ == '__main__':
     # updater.update_cashflow(INITIAL_DATE, END_DATE)  # 按公告日增量更新现金流量表 20200101 -20260913  done
     # updater.update_income(INITIAL_DATE, END_DATE)  # 按公告日增量更新利润表 20200101 -20260913  done
     # updater.update_fina_indicator(INITIAL_DATE, END_DATE)  # 按公告日增量更新财务指标 20200101 -20260913  done
+    updater.update_namechange()  # 逐股拉取完整名称变更历史，合并保存 t done
     # updater.update_dividend()  # 逐股拉取完整分红历史，覆盖保存 todo 待确定需要吗
-    # updater.update_namechange()  # 逐股拉取完整名称变更历史，合并保存 todo 待确定需要吗
 
-    updater.update_hm_detail(INITIAL_DATE, END_DATE)  # 游资明细  '20200101' -'20260911'done
+    # updater.update_hm_detail(INITIAL_DATE, END_DATE)  # 游资明细  '20200101' -'20260911'done

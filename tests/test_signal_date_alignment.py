@@ -20,12 +20,12 @@ def test_signal_pool_and_next_open_filter_use_different_dates():
     assert not actual.iloc[-1].any()
 
 
-def test_pool_reads_current_close_st_and_suspend_state():
+def test_pool_uses_current_positive_amount_and_st_without_suspend_filter():
     dates = pd.to_datetime(['20240105', '20240108', '20240109'])
     manager = DataManager({'research_window': {'start_date': '20240105', 'end_date': '20240109'}})
     manager.trading_dates = dates
-    close = pd.DataFrame({'A': [None, 10., 10.], 'B': [10., 10., 10.]}, index=dates)
-    manager.get_raw_field = Mock(return_value=close)
+    amount = pd.DataFrame({'A': [None, 10., 10.], 'B': [10., 10., 0.]}, index=dates)
+    manager.get_raw_field = Mock(return_value=amount)
     manager.st_matrix = pd.DataFrame({'A': [False, False, True], 'B': [False, True, False]}, index=dates)
     manager.build_st_period_from_namechange = Mock()
     manager._tradeable_matrix_by_suspend_resume = pd.DataFrame(
@@ -34,8 +34,10 @@ def test_pool_reads_current_close_st_and_suspend_state():
     profile = {'filters': {'history_days': 0, 'remove_st': True,
                            'adapt_tradeable_matrix_by_suspend_resume': True}}
     actual = manager.create_stock_pool(profile, 'ALL')
-    expected = pd.DataFrame({'A': [False, True, False], 'B': [False, False, True]}, index=dates)
+    expected = pd.DataFrame({'A': [False, True, False], 'B': [True, False, False]}, index=dates)
     pd.testing.assert_frame_equal(actual, expected)
+    manager.get_raw_field.assert_called_once_with('amount')
+    manager.build_tradeable_matrix_by_suspend_resume.assert_not_called()
 
 
 def test_liquidity_and_size_filters_read_signal_day_values():

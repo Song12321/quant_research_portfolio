@@ -10,8 +10,11 @@ def apply_history_days_filter(
         history_days: int,
 ) -> pd.DataFrame:
     """剔除截至 T 日收盘有效历史不足的候选股票；0 表示不应用该门槛。"""
-    if isinstance(history_days, (bool, np.bool_)) or not isinstance(history_days, (int, np.integer)):
+    if (isinstance(history_days, (bool, np.bool_))
+            or not isinstance(history_days, (int, np.integer)) or history_days < 0):
         raise ValueError(f"股票池 history_days 必须是非负整数，实际值={history_days!r}。")
+    if history_days == 0:
+        return stock_pool_df
 
     observable_closes = close_raw_df.notna().cumsum()
     history_counts = observable_closes.reindex(index=stock_pool_df.index, columns=stock_pool_df.columns)

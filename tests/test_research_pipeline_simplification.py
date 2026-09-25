@@ -191,7 +191,7 @@ def test_pool_loads_only_enabled_filter_fields(liquidity, market_cap):
             "min_liquidity_percentile": liquidity, "min_market_cap_percentile": market_cap,
         },
     }}
-    expected = ["close_raw"]
+    expected = ["amount"]
     if liquidity:
         expected.extend(["turnover_rate", "close_raw"])
     if market_cap:
@@ -228,6 +228,17 @@ def test_raw_field_reads_every_time_and_aligns_without_batch_loader():
     assert not hasattr(manager, "temporary_raw_dfs")
 
 
+def test_amount_keeps_its_own_grid_without_reading_close():
+    manager = make_data_manager({"neutralization": {"enable": False}})
+    amount = pd.DataFrame({"outside": [100.0]}, index=pd.to_datetime(["20240102"]))
+    manager.data_loader = Mock()
+    manager.data_loader.read_field.return_value = amount
+    pd.testing.assert_frame_equal(manager.get_raw_field("amount"), amount)
+    manager.data_loader.read_field.assert_called_once_with(
+        "amount", manager.buffer_start_date, manager.research_end_date,
+    )
+
+
 def test_raw_field_read_failure_propagates():
     manager = make_data_manager({"neutralization": {"enable": False}})
     manager.data_loader = Mock()
@@ -237,7 +248,7 @@ def test_raw_field_read_failure_propagates():
     manager.data_loader.read_field.assert_called_once()
 
 
-def test_pool_filter_order_is_unchanged(monkeypatch):
+def test_pool_filter_order_without_signal_day_suspend_filter(monkeypatch):
     manager = make_data_manager({"neutralization": {"enable": False}})
     close = pd.DataFrame({"a": [1.0, 2.0]}, index=pd.date_range("2024-01-01", periods=2))
     manager.trading_dates = close.index[1:]
@@ -258,7 +269,7 @@ def test_pool_filter_order_is_unchanged(monkeypatch):
     actual = manager.create_stock_pool(profile, "ALL")
     assert calls == [
         "_build_dynamic_index_universe", "_filter_by_history_days", "_filter_st_stocks",
-        "_filter_tradeable_matrix_by_suspend_resume", "_filter_by_liquidity", "_filter_by_market_cap",
+        "_filter_by_liquidity", "_filter_by_market_cap",
     ]
     pd.testing.assert_frame_equal(actual, close.notna().reindex(manager.trading_dates))
 

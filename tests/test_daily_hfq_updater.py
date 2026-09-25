@@ -197,7 +197,7 @@ def test_download_does_not_require_daily(tmp_path, monkeypatch):
     assert not updater._path('daily_hfq').exists()
 
 
-def test_prepare_and_stock_pool_use_raw_close(market, monkeypatch):
+def test_prepare_and_stock_pool_use_positive_amount(market, monkeypatch):
     daily, _, _ = market
     updater._save_daily_by_year(
         'daily_basic', daily[['ts_code', 'trade_date']].assign(circ_mv=100.0, turnover_rate=1.0),
@@ -218,5 +218,5 @@ def test_prepare_and_stock_pool_use_raw_close(market, monkeypatch):
     monkeypatch.setattr(module + '.PointInTimeIndustryMap', lambda: None)
     data._prepare_stock_pool()
     assert not hasattr(data, 'raw_dfs')
-    expected = data.get_raw_field('close_raw').notna().reindex(data.trading_dates)
+    expected = data.get_raw_field('amount').reindex(data.trading_dates).gt(0)
     assert_frame_equal(data.stock_pools_dict['ALL'], expected)
