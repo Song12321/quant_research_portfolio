@@ -136,8 +136,6 @@ class DataManager:
         self.research_end_date = self.config['research_window']['end_date']
         self.buffer_start_date = None
         self.data_loader = DataLoader()
-        self.raw_dfs = {}
-        self.temporary_raw_dfs = {}
         self.stock_pools_dict = None
         self._entry_pools = {}
         self._existence_matrix = None
@@ -220,42 +218,17 @@ class DataManager:
 
         return  definition['preheat_trading_days']
 
-    # 执行 get_raw_field 对应逻辑。
     def get_raw_field(self, field_name: str) -> pd.DataFrame:
-        """按当前研究窗口临时加载原始字段，并对齐到常驻价格网格。"""
-        # 常驻字段已按同一预热区间对齐，直接复用，避免再次从磁盘加载。
-        if field_name in self.raw_dfs:
-            return self.raw_dfs[field_name]
-        if field_name in self.temporary_raw_dfs:
-            return self.temporary_raw_dfs[field_name]
-
-        # 收盘价常驻，首次取任意其他字段前先建立统一对齐基准。
-        if field_name != 'close_raw':
-            base_df = self.get_raw_field('close_raw')
-        loaded = self.data_loader.get_raw_dfs_by_require_fields(
-            fields=[field_name],
-            buffer_start_date=self.buffer_start_date,
-            end_date=self.research_end_date,
+        """直接读取研究窗口内的字段，不缓存；非价格基准字段对齐收盘价网格。"""
+        df = self.data_loader.read_field(
+            field_name, self.buffer_start_date, self.research_end_date,
         )
-        if set(loaded) != {field_name}:
-            raise RuntimeError(
-                f"原始字段加载结果违反契约: field={field_name}, loaded={sorted(loaded)}"
-            )
         if field_name == 'close_raw':
-            self.raw_dfs[field_name] = loaded[field_name]
-            return self.raw_dfs[field_name]
-        # 新加载字段统一对齐常驻收盘价网格，并进入逐因子结束时释放的临时缓存。
-        aligned_df = loaded[field_name].reindex(index=base_df.index, columns=base_df.columns)
-        self.temporary_raw_dfs[field_name] = aligned_df
-        return aligned_df
-
-    # 执行 clear_temporary_raw_fields 对应逻辑。
-    def clear_temporary_raw_fields(self) -> None:
-        """释放当前因子临时读取的原始宽表。"""
-        cleared_count = len(self.temporary_raw_dfs)
-        self.temporary_raw_dfs.clear()
-        if cleared_count:
-            logger.info(f"临时原始字段已清理，释放了 {cleared_count} 个宽表")
+            return df
+        close = self.data_loader.read_field(
+            'close_raw', self.buffer_start_date, self.research_end_date,
+        )
+        return df.reindex(index=close.index, columns=close.columns)
 
     def _prepare_stock_pool(self) -> None:
         """构建本次股票池，数据由各过滤步骤按需读取。"""
@@ -296,7 +269,7 @@ class DataManager:
         """检查数据质量"""
         print("  检查数据完整性和质量...")
 
-        for field_name, df in self.raw_dfs.items():
+        for field_name, df in [("close_raw", self.get_raw_field('close_raw'))]:
             # 检查数据形状
             print(f"  {field_name}: {df.shape}")
 
@@ -319,11 +292,8 @@ class DataManager:
         """
         logger.info("    正在构建股票“存在性”矩阵..")
         # 1. 获取作为输入的上市和退市日期面板
-        list_date_panel = self.raw_dfs.get('list_date')
-        delist_date_panel = self.raw_dfs.get('delist_date')
-
-        if list_date_panel is None or delist_date_panel is None:
-            raise ValueError("缺少'list_date'或'delist_date'面板数据，无法构建存在性矩阵。")
+        list_date_panel = self.get_raw_field('list_date')
+        delist_date_panel = self.get_raw_field('delist_date')
 
         # 2. 【核心】向量化构建布尔掩码 (Boolean Masks)
 
@@ -765,8 +735,7 @@ class DataManager:
 
     # 执行 get_stock_codes 对应逻辑。
     def get_stock_codes(self) -> pd.DataFrame:
-        first_df = next(iter(self.raw_dfs.values()))  # 取第一个 DataFrame
-        return first_df.columns.tolist()
+        return self.get_raw_field('close_raw').columns.tolist()
 
     # 执行 get_namechange_data 对应逻辑。
     def get_namechange_data(self) -> pd.DataFrame:
@@ -800,7 +769,7 @@ class DataManager:
 
             # 数据质量报告
             quality_report = []
-            for field_name, df in self.raw_dfs.items():
+            for field_name, df in [("close_raw", self.get_raw_field('close_raw'))]:
                 quality_report.append({
                     'field': field_name,
                     'shape': f"{df.shape[0]}x{df.shape[1]}",
@@ -840,7 +809,7 @@ class DataManager:
     def create_stock_pool(self, stock_pool_config_profile, pool_name):
         """按原有顺序过滤，返回每日可参与研究的股票掩码。"""
         logger.info(f"  构建{pool_name}动态股票池...")
-        # 用 T 日收盘价格建立信号日股票池；首次读取同时建立对齐基准。
+        # 用 T 日收盘价格建立信号日股票池；按实际收盘价数据建立网格。
         close = self.get_raw_field('close_raw')
         pool = close.notna().reindex(self.trading_dates)
         index_config = stock_pool_config_profile.get('index_filter', {})

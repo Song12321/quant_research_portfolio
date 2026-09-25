@@ -95,6 +95,7 @@ class DataLoader:
             raise ValueError(f"未定义字段读取方式: {field}")
         return self._read_panel(dataset, column, start_date, end_date, ts_codes)
 
+    #读取 金融财报 会有问题，trade_date根本没有这个字段，
     def _read_panel(self, dataset, column, start_date, end_date, ts_codes):
         # 股票基本信息是静态数据，其余已支持的数据集使用交易日主键。
         keys = ["ts_code"] if dataset == "stock_basic.parquet" else ["ts_code", "trade_date"]
@@ -105,8 +106,8 @@ class DataLoader:
         if ts_codes is not None:
             frame = frame[frame["ts_code"].isin(ts_codes)]
         trading_dates = self.get_trading_dates(start_date, end_date)
+        #去重
         if "trade_date" in keys:
-            # 沿用既有时段筛选和同日记录取最后一条的规则。
             frame = frame[frame["trade_date"].isin(trading_dates)]
             frame = frame.drop_duplicates(["trade_date", "ts_code"], keep="last")
             return frame.pivot(index="trade_date", columns="ts_code", values=column)

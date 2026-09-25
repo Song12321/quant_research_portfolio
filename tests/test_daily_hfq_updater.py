@@ -49,10 +49,7 @@ def make_factor_manager():
     data.data_loader.trade_cal = data.data_loader._load_trade_cal()
     data.buffer_start_date = '20241231'
     data.research_end_date = '20250102'
-    data.raw_dfs = data.data_loader.get_raw_dfs_by_require_fields(
-        ['close_raw'], data.buffer_start_date, data.research_end_date,
-    )
-    data.temporary_raw_dfs = {}
+    data._entry_pools = {}
     manager = FactorManager.__new__(FactorManager)
     manager.data_manager = data
     manager.factors_cache = {}
@@ -159,10 +156,18 @@ def test_missing_raw_factors_do_not_fall_back_to_legacy(market):
         manager.get_raw_factor('close_hfq')
 
 
-def test_suspension_nan_is_preserved(market):
+def test_suspension_nan_is_preserved(market, monkeypatch):
     updater.update_adj_factor('20241231', '20250102')
     manager = make_factor_manager()
-    manager.data_manager.raw_dfs['close_raw'].iloc[0, 0] = float('nan')
+    read_field = manager.data_manager.data_loader.read_field
+
+    def read_with_missing_close(field, *args):
+        frame = read_field(field, *args)
+        if field == 'close_raw':
+            frame.iloc[0, 0] = float('nan')
+        return frame
+
+    monkeypatch.setattr(manager.data_manager.data_loader, 'read_field', read_with_missing_close)
     factors = manager.get_raw_factor('adj_factor')
     factors.iloc[0, 0] = float('nan')
     manager.factors_cache['adj_factor'] = factors
@@ -212,6 +217,6 @@ def test_prepare_and_stock_pool_use_raw_close(market, monkeypatch):
     module = 'projects._03_factor_selection.data_manager.data_manager'
     monkeypatch.setattr(module + '.PointInTimeIndustryMap', lambda: None)
     data._prepare_stock_pool()
-    assert set(data.raw_dfs) == {'close_raw'}
-    expected = data.raw_dfs['close_raw'].shift(1).notna().reindex(data.trading_dates)
+    assert not hasattr(data, 'raw_dfs')
+    expected = data.get_raw_field('close_raw').notna().reindex(data.trading_dates)
     assert_frame_equal(data.stock_pools_dict['ALL'], expected)

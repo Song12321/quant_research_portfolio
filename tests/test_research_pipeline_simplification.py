@@ -36,7 +36,7 @@ def test_data_constructor_does_not_load_data(monkeypatch):
     manager = make_data_manager({"neutralization": {"enable": False}})
     assert manager.data_loader.trade_cal is None
     assert not hasattr(manager.data_loader, "field_map")
-    assert manager.raw_dfs == {}
+    assert not hasattr(manager, "raw_dfs")
     loader.assert_not_called()
 
 
@@ -81,7 +81,7 @@ def test_index_components_are_created_only_when_building_enabled_pool(monkeypatc
     manager.data_loader = Mock()
     frame = pd.DataFrame({"a": [1.0, 2.0]}, index=pd.date_range("2024-01-01", periods=2))
     manager.trading_dates = frame.index[1:]
-    manager.data_loader.get_raw_dfs_by_require_fields.return_value = {"close_raw": frame}
+    manager.data_loader.read_field.return_value = frame
     component.assert_not_called()
     manager._prepare_stock_pool()
     assert component.call_count == int(enabled)
@@ -171,13 +171,13 @@ def test_only_research_pool_is_built():
     }
     manager.create_stock_pool = Mock(return_value=object())
     manager.data_loader = Mock()
-    manager.data_loader.get_raw_dfs_by_require_fields.return_value = {"close_raw": pd.DataFrame([[1.0]])}
+    manager.data_loader.read_field.return_value = pd.DataFrame([[1.0]])
     manager._prepare_stock_pool()
     manager.create_stock_pool.assert_called_once_with(
         manager.config["stock_pool_profiles"]["ALL"], "ALL"
     )
     assert manager.stock_pools_dict == {"ALL": manager.create_stock_pool.return_value}
-    manager.data_loader.get_raw_dfs_by_require_fields.assert_not_called()
+    manager.data_loader.read_field.assert_not_called()
 
 
 @pytest.mark.parametrize("liquidity", [0, 0.1])
@@ -193,46 +193,48 @@ def test_pool_loads_only_enabled_filter_fields(liquidity, market_cap):
     }}
     expected = ["close_raw"]
     if liquidity:
-        expected.append("turnover_rate")
+        expected.extend(["turnover_rate", "close_raw"])
     if market_cap:
-        expected.append("circ_mv")
+        expected.extend(["circ_mv", "close_raw"])
     manager.data_loader = Mock()
     frame = pd.DataFrame({"a": [1.0, 2.0]}, index=pd.date_range("2024-01-01", periods=2))
     manager.trading_dates = frame.index[1:]
-    manager.data_loader.get_raw_dfs_by_require_fields.side_effect = (
-        lambda **kwargs: {kwargs["fields"][0]: frame.copy()}
-    )
+    manager.data_loader.read_field.side_effect = lambda *args: frame.copy()
     manager._prepare_stock_pool()
-    assert [
-        call.kwargs["fields"][0]
-        for call in manager.data_loader.get_raw_dfs_by_require_fields.call_args_list
-    ] == expected
-    assert set(manager.raw_dfs) == {"close_raw"}
-    assert set(manager.temporary_raw_dfs) == set(expected) - {"close_raw"}
+    assert [call.args[0] for call in manager.data_loader.read_field.call_args_list] == expected
 
 
-def test_on_demand_reads_establish_base_and_reuse_cache_without_quality_scan(monkeypatch):
+def test_raw_field_reads_every_time_and_aligns_without_batch_loader():
     manager = make_data_manager({"neutralization": {"enable": False}})
+    manager.buffer_start_date = "20230101"
     dates = pd.date_range("2024-01-01", periods=2)
     close = pd.DataFrame({"a": [1.0, 2.0]}, index=dates)
     turnover = pd.DataFrame({"a": [0.5], "outside": [2.0]}, index=dates[1:])
     manager.data_loader = Mock()
-    manager.data_loader.get_raw_dfs_by_require_fields.side_effect = (
-        lambda **kwargs: {kwargs["fields"][0]: close if kwargs["fields"] == ["close_raw"] else turnover}
+    manager.data_loader.read_field.side_effect = (
+        lambda field, *args: (close if field == "close_raw" else turnover).copy()
     )
-    monkeypatch.setattr(data_module, "check_field_level_completeness", Mock(
-        side_effect=AssertionError("Research must not run a completeness scan")
-    ))
     actual = manager.get_raw_field("turnover_rate")
     pd.testing.assert_frame_equal(actual, turnover.reindex(index=dates, columns=["a"]))
-    assert manager.get_raw_field("turnover_rate") is actual
-    assert manager.get_raw_field("close_raw") is close
-    assert manager.data_loader.get_raw_dfs_by_require_fields.call_count == 2
-    manager.clear_temporary_raw_fields()
-    assert manager.get_raw_field("close_raw") is close
-    assert not manager.temporary_raw_dfs
-    manager.get_raw_field("turnover_rate")
-    assert manager.data_loader.get_raw_dfs_by_require_fields.call_count == 3
+    turnover.iloc[0, 0] = 0.8
+    assert manager.get_raw_field("turnover_rate").iloc[1, 0] == 0.8
+    pd.testing.assert_frame_equal(manager.get_raw_field("close_raw"), close)
+    assert [call.args for call in manager.data_loader.read_field.call_args_list] == [
+        (field, "20230101", manager.research_end_date)
+        for field in ["turnover_rate", "close_raw", "turnover_rate", "close_raw", "close_raw"]
+    ]
+    manager.data_loader.get_raw_dfs_by_require_fields.assert_not_called()
+    assert not hasattr(manager, "raw_dfs")
+    assert not hasattr(manager, "temporary_raw_dfs")
+
+
+def test_raw_field_read_failure_propagates():
+    manager = make_data_manager({"neutralization": {"enable": False}})
+    manager.data_loader = Mock()
+    manager.data_loader.read_field.side_effect = OSError("read failed")
+    with pytest.raises(OSError, match="read failed"):
+        manager.get_raw_field("turnover_rate")
+    manager.data_loader.read_field.assert_called_once()
 
 
 def test_pool_filter_order_is_unchanged(monkeypatch):
@@ -312,12 +314,8 @@ def test_basic_data_does_not_eagerly_load_industry(monkeypatch):
         "enable": True, "factors": ["industry"],
     }})
     manager.buffer_start_date = "20230101"
-    manager.raw_dfs = {}
-    manager.temporary_raw_dfs = {}
     manager.data_loader = Mock()
-    manager.data_loader.get_raw_dfs_by_require_fields.return_value = {
-        "close_raw": pd.DataFrame([[1.0]])
-    }
+    manager.data_loader.read_field.return_value = pd.DataFrame([[1.0]])
     manager.config["stock_pool_profiles"] = {"ALL": {"index_filter": {"enable": False}, "filters": {}}}
     manager.create_stock_pool = Mock()
     loader = Mock(side_effect=AssertionError("Unexpected eager load"))

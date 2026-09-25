@@ -12,16 +12,6 @@ def apply_history_days_filter(
     """剔除截至 T 日收盘有效历史不足的候选股票；0 表示不应用该门槛。"""
     if isinstance(history_days, (bool, np.bool_)) or not isinstance(history_days, (int, np.integer)):
         raise ValueError(f"股票池 history_days 必须是非负整数，实际值={history_days!r}。")
-    if history_days < 0:
-        raise ValueError(f"股票池 history_days 必须是非负整数，实际值={history_days!r}。")
-    if history_days == 0:
-        return stock_pool_df
-    if close_raw_df is None:
-        raise ValueError("股票池 history_days 过滤失败：缺少收盘价数据(close_raw)。")
-    if close_raw_df.empty:
-        raise ValueError("股票池 history_days 过滤失败：收盘价数据(close_raw)为空。")
-    if close_raw_df.index.has_duplicates or not close_raw_df.index.is_monotonic_increasing:
-        raise ValueError("股票池 history_days 过滤失败：收盘价交易日必须严格递增且无重复。")
 
     observable_closes = close_raw_df.notna().cumsum()
     history_counts = observable_closes.reindex(index=stock_pool_df.index, columns=stock_pool_df.columns)

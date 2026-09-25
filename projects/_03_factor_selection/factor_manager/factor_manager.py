@@ -223,10 +223,9 @@ class FactorManager:
         清理因子缓存
         提供正式的缓存管理接口，避免直接操作内部属性
         """
-        # 释放本因子计算缓存和临时字段；本轮方向字典及共用股票池仍保留给后续实验。
+        # 释放本因子计算缓存；本轮方向字典及共用股票池仍保留给后续实验。
         cache_size = len(self.factors_cache)
         self.factors_cache.clear()
-        self.data_manager.clear_temporary_raw_fields()
         logger.info(f"因子缓存已清理，释放了 {cache_size} 个缓存项")
 
     # 执行 store_inner_resolved_direction 对应逻辑。
