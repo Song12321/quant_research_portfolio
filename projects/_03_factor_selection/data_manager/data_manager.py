@@ -800,7 +800,7 @@ class DataManager:
         print(f"数据摘要已保存到: {summary_path}")
 
     # 执行 show_stock_nums_for_per_day 对应逻辑。
-    def show_stock_nums_for_per_day(self, describe_text, pool_df, simplePrint):
+    def show_stock_nums_for_per_day(self, describe_text, pool_df:None, simplePrint :bool=True):
         daily_count = pool_df.sum(axis=1)
         logger.info(f"    {describe_text}动态股票池:")
         logger.info(f"      平均每日股票数: {daily_count.mean():.0f} --- 最少每日股票数: {daily_count.min():.0f} --- 最多每日股票数: {daily_count.max():.0f}")
@@ -843,7 +843,7 @@ class DataManager:
             pool = self._filter_by_liquidity(pool, filters['min_liquidity_percentile'])
         if filters.get('min_market_cap_percentile', 0) > 0:
             pool = self._filter_by_market_cap(pool, filters['min_market_cap_percentile'])
-        self.show_stock_nums_for_per_day(f'{pool_name}最终股票池', pool)
+        self.show_stock_nums_for_per_day(f'{pool_name}最终股票池', pool,false)
         return pool
 
     def get_which_field_of_factor_definition_by_factor_name(self, factor_name, which_field):
