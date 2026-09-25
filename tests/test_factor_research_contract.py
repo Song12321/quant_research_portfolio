@@ -41,7 +41,7 @@ INNER_CONFIG_PATH = (
     / "_03_factor_selection"
     / "configs"
     / "research"
-    / "inner.yaml"
+    / "test.yaml"
 )
 
 

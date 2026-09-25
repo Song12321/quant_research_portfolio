@@ -1,17 +1,13 @@
 stage: inner
 experiment_name: single_factor_inner
-output_root: '../../workspace'
-factor_definition_dir: '../factors/definitions'
-direction_output_file: '../factors/inner_resolved_directions.yaml'
+output_root: '../../../workspace'
+factor_definition_dir: '../../factors/definitions'
+direction_output_file: '../../factors/inner_resolved_directions.yaml'
 
 stock_pool_name: 'ALL'
 
 experiments:
-  - factor_name: 'three_low_one_high_value'
   - factor_name: 'three_low_one_high_lowprice'
-  - factor_name: 'three_low_one_high_lowattn'
-  - factor_name: 'three_low_one_high_improve'
-  - factor_name: 'three_low_one_high'
 
 research_window:
   start_date: '2024-01-01'

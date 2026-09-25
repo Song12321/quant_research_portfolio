@@ -195,7 +195,7 @@ class DataManager:
                 f"交易日历不足以满足预热期: first_date={first_date.date()}, "
                 f"required_days={preheat_days}, available_days={len(prior_dates)}"
             )
-        buffer_start = pd.Timestamp(prior_dates.iloc[-preheat_days])
+        buffer_start = pd.Timestamp(prior_dates.iloc[-int(preheat_days)])
         logger.info(
             f"预热期已解析: factor_days={max(factor_days)}, "
             f"selected_days={preheat_days}, "

@@ -27,7 +27,7 @@ from quant_lib.config.logger_config import log_success, setup_logger
 
 
 logger = setup_logger(__name__)
-DEFAULT_INNER_CONFIG = Path(__file__).parents[1] / "configs" / "research" / "inner.yaml" #todonew 不一定是inner
+DEFAULT_INNER_CONFIG = Path(__file__).parents[1] / "configs" / "research/inner" / "test.yaml" #todonew 不一定是inner
 
 
 class EnhancedTestRunner:
@@ -138,7 +138,7 @@ class EnhancedTestRunner:
             raise ValueError(f"当前入口仅支持 stage=inner，实际={config.get('stage')!r}")
         experiments = config.get("experiments")
         if not isinstance(experiments, list) or not experiments:
-            raise ValueError("inner.yaml.experiments 必须是非空列表")
+            raise ValueError("test.yaml.experiments 必须是非空列表")
         # 分别检查实验字段/重复因子，以及评估周期和唯一允许的 o2o 收益口径。
         self._validate_experiments(experiments)
         self._validate_inner_evaluation(config.get("evaluation"))
@@ -220,7 +220,7 @@ class EnhancedTestRunner:
         # 把配置中的相对路径转为配置文件所在目录的绝对路径。
         value = config.get(key)
         if not isinstance(value, str) or not value:
-            raise ValueError(f"inner.yaml 缺少非空路径字段: {key}")
+            raise ValueError(f"test.yaml 缺少非空路径字段: {key}")
         return (self.research_config_path.parent / value).resolve()
 
 
@@ -255,10 +255,10 @@ class EnhancedTestRunner:
         for index, row in enumerate(experiments):
             if not isinstance(row, dict) or set(row) != expected:
                 raise ValueError(
-                    f"inner.yaml.experiments[{index}] 字段非法，实际={row!r}，预期={sorted(expected)}"
+                    f"test.yaml.experiments[{index}] 字段非法，实际={row!r}，预期={sorted(expected)}"
                 )
             if not all(isinstance(row[key], str) and row[key] for key in expected):
-                raise ValueError(f"inner.yaml.experiments[{index}] 的名称必须是非空字符串")
+                raise ValueError(f"test.yaml.experiments[{index}] 的名称必须是非空字符串")
         # 条目逐个合法后，再检查整轮名称唯一，避免同名因子重复研究和写入方向。
         names = [row["factor_name"] for row in experiments]
         if len(names) != len(set(names)):
@@ -269,7 +269,7 @@ class EnhancedTestRunner:
         # 通用字符串字段校验，确保关键配置明确存在且不为空。
         value = config.get(key)
         if not isinstance(value, str) or not value:
-            raise ValueError(f"inner.yaml 缺少非空字符串字段: {key}")
+            raise ValueError(f"test.yaml 缺少非空字符串字段: {key}")
 
     @staticmethod
     def _validate_inner_evaluation(evaluation: object) -> None:
@@ -277,7 +277,7 @@ class EnhancedTestRunner:
         # 周期必须是非空的正整数列表；bool 虽属于 int 子类，也不能作为天数。
         periods = evaluation["forward_periods"]
         if not isinstance(periods, list) or not periods:
-            raise ValueError("inner.yaml.evaluation.forward_periods 必须是非空列表")
+            raise ValueError("test.yaml.evaluation.forward_periods 必须是非空列表")
         if any(isinstance(period, bool) or not isinstance(period, int) or period <= 0 for period in periods):
             raise ValueError(f"Inner 周期必须是正整数: periods={periods!r}")
         if len(periods) != len(set(periods)):
