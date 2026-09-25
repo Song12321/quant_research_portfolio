@@ -18,11 +18,11 @@ stock_pool_profiles:
     index_filter:
       enable: false
     filters:
-      remove_st: true
+      remove_st: false
       history_days: 252
-      adapt_tradeable_matrix_by_suspend_resume: true
-      min_liquidity_percentile: 0.10
-      min_market_cap_percentile: 0.05
+      adapt_tradeable_matrix_by_suspend_resume: false
+      min_liquidity_percentile: 0 #0.10
+      min_market_cap_percentile: 0 #0.05
 
 preprocessing:
   winsorization:

@@ -77,7 +77,8 @@ class DataLoader:
         dates = pd.to_datetime(self.trade_cal.loc[mask, 'cal_date'].unique())
         return pd.DatetimeIndex(sorted(dates))  # 显式排序，确保有序
 
-    def read_field(self, field, start_date, end_date, ts_codes=None):
+    #base
+    def read_base_field(self, field, start_date, end_date, ts_codes=None):
         """从明确的数据集读取字段，不扫描文件推断来源。"""
         if field in ("open_raw", "close_raw", "high_raw", "low_raw", "vol_raw"):
             dataset, column = "daily", field.removesuffix("_raw")
@@ -140,7 +141,7 @@ class DataLoader:
         if not fields:
             raise ValueError("加载原始数据时 fields 不得为空")
         panels = {
-            field: self.read_field(field, buffer_start_date, end_date, ts_codes)
+            field: self.read_base_field(field, buffer_start_date, end_date, ts_codes)
             for field in sorted(set(fields))
         }
         return self._align_dataframes(panels)

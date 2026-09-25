@@ -159,7 +159,7 @@ def test_missing_raw_factors_do_not_fall_back_to_legacy(market):
 def test_suspension_nan_is_preserved(market, monkeypatch):
     updater.update_adj_factor('20241231', '20250102')
     manager = make_factor_manager()
-    read_field = manager.data_manager.data_loader.read_field
+    read_field = manager.data_manager.data_loader.read_base_field
 
     def read_with_missing_close(field, *args):
         frame = read_field(field, *args)

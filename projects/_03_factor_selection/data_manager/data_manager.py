@@ -220,12 +220,12 @@ class DataManager:
 
     def get_raw_field(self, field_name: str) -> pd.DataFrame:
         """直接读取研究窗口内的字段，不缓存；收盘价和成交额保留原始网格，其余对齐收盘价。"""
-        df = self.data_loader.read_field(
+        df = self.data_loader.read_base_field(
             field_name, self.buffer_start_date, self.research_end_date,
         )
         if field_name in ('close_raw', 'amount'):
             return df
-        close = self.data_loader.read_field(
+        close = self.data_loader.read_base_field(
             'close_raw', self.buffer_start_date, self.research_end_date,
         )
         return df.reindex(index=close.index, columns=close.columns)
