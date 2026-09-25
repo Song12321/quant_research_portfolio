@@ -375,7 +375,6 @@ class DataManager:
             self,
     ) -> pd.DataFrame:
         """按自然日重建公告收盘后已知的 ST 状态，供信号池及次日买入过滤使用。"""
-        logger.info("正在根据名称变更历史，重建每日‘已知风险’状态st矩阵...")
         # 多取前一自然日，供研究首日读取开盘前状态。
         ts_codes = list(set(self.get_stock_codes()))
         calendar_dates = pd.date_range(
@@ -418,7 +417,6 @@ class DataManager:
         st_matrix = st_matrix.ffill(inplace=False)
         st_matrix = st_matrix.fillna(False, inplace=False)
 
-        logger.info("每日‘已知风险’状态矩阵重建完毕。")
         self.st_matrix = st_matrix.astype(bool)
         return self.st_matrix
 
@@ -843,7 +841,7 @@ class DataManager:
             pool = self._filter_by_liquidity(pool, filters['min_liquidity_percentile'])
         if filters.get('min_market_cap_percentile', 0) > 0:
             pool = self._filter_by_market_cap(pool, filters['min_market_cap_percentile'])
-        self.show_stock_nums_for_per_day(f'{pool_name}最终股票池', pool,false)
+        self.show_stock_nums_for_per_day(f'{pool_name}最终股票池', pool,False)
         return pool
 
     def get_which_field_of_factor_definition_by_factor_name(self, factor_name, which_field):
