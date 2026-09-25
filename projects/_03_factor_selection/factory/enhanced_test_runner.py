@@ -44,39 +44,56 @@ class EnhancedTestRunner:
         self.result_store = None
 
     def _initialize_components(self, config: dict) -> None:
+        # 数据管理器持有研究配置和共享缓存；实际日期、股票池在 prepare() 中准备。
         self.data = DataManager(config)
+        # 因子引擎绑定同一数据管理器；本轮先研究原始方向，不套用配置中的历史方向。
         self.factor_engine = FactorManager(
             self.data,
             results_dir=self.run_dir / "artifacts",
             apply_configured_direction=False,
         )
+        # 评估器负责预处理及 IC、分层、换手计算，结果存储器负责写入本轮 artifacts。
         self.evaluator = FactorAnalyzer(self.factor_engine)
         self.result_store = FactorResultsManager(results_dir=self.run_dir / "artifacts")
 
     def run(self, description: str = "Inner processed 因子研究") -> List[Dict]:
+        # 校验研究配置、加载因子定义，创建独立运行目录并保存生效配置。
         config = self._prepare_run(description)
+        # 组装共享数据管理器、因子计算引擎、评估器和结果存储器。
         self._initialize_components(config)
+        # 读取交易日历，按因子依赖解析预热期，并构建本轮共用的研究股票池。
+
         self.data.prepare()
+        # 按实验顺序研究因子：评估、保存产物、确定方向，并逐因子清理临时缓存。
+
         results = self._research_factors(config)
+        # 全部因子成功后，保存本轮方向快照及 summary.json，返回各因子的结果记录。
+
         self._save_run_summary(results, config)
         return results
 
     def _prepare_run(self, description: str) -> dict:
+        # 先完成配置和复合因子依赖校验；校验失败时不会创建运行目录。
         config = self._load_effective_config(description)
+        # 按输出根目录、研究阶段、时间戳和实验名创建目录，同时建立 artifacts 子目录。
         self.run_dir = create_run_dir(
             Path(config["output_root"]),
             config["stage"],
             config["experiment_name"],
         )
+        # 将补齐因子定义、绝对路径和描述后的配置写入 effective_config.yaml。
         write_effective_config(self.run_dir, config)
         return config
 
     def _save_run_summary(self, results: List[Dict], config: dict) -> None:
+        # 从已增量写入的方向配置中提取本轮因子，保存为运行目录内的独立快照。
         self._snapshot_direction_config(results)
+        # 写入运行标识、股票池及因子方向列表；全部落盘后才打印完成日志。
         self._write_summary(results, config["stock_pool_name"])
         log_success(f"Inner 因子研究完成: {len(results)} 个因子，run={self.run_dir.name}")
 
     def _research_factors(self, config: dict) -> List[Dict]:
+        # 股票池名称用于评估，存储名称用于结果目录；所有实验使用同一研究窗口。
         stock_pool_name = config["stock_pool_name"]
         storage_name = self.data.get_stock_pool_storage_name_by_name(stock_pool_name)
         window = config["research_window"]
@@ -84,11 +101,14 @@ class EnhancedTestRunner:
         for experiment in config["experiments"]:
             factor_name = experiment["factor_name"]
             try:
+                # 获取单因子或合成因子数据，完成预处理及 IC、分层收益和换手评估。
+                # evaluate_factor 仅返回内存结果，下面再由结果存储器统一落盘。
                 research_result = self.evaluator.evaluate_factor(
                     factor_name=factor_name,
                     stock_pool_index_name=stock_pool_name,
                 )
                 for calculator_name, result in research_result.items():
+                    # 按股票池/因子/收益口径/日期窗口保存统计 JSON 和因子、IC、分层序列。
                     self.result_store._save_factor_results(
                         factor_name=factor_name,
                         stock_index=storage_name,
@@ -98,43 +118,54 @@ class EnhancedTestRunner:
                         results=result,
                     )
                     del result
+                # 按各周期有效 IC 节点数加权确定正负方向，并增量写入方向配置。
                 direction = self._store_direction(factor_name, research_result, config)
+                # 同时冻结到本轮引擎内存，供后续复合因子读取已完成子因子的方向。
                 self.factor_engine.store_inner_resolved_direction(factor_name, direction)
+                # 返回列表只保留轻量元信息，当前因子的完整评估数据已保存至 artifacts。
                 results.append(self._result_row(factor_name, stock_pool_name, direction))
                 del research_result
             finally:
+                # 成功或异常都清理因子缓存和临时原始字段；异常继续向上传播，终止本轮。
                 self.factor_engine.clear_cache()
         return results
 
     def _load_effective_config(self, description: str) -> dict[str, Any]:
         # 加载配置并做严格校验，再补齐路径、定义与上下文字段后返回生效配置。
         config = self._load_yaml_mapping(self.research_config_path)
+        # 限定 Inner 阶段，并要求至少配置一个实验；不合法时立即终止。
         if config.get("stage") != "inner":
             raise ValueError(f"当前入口仅支持 stage=inner，实际={config.get('stage')!r}")
         experiments = config.get("experiments")
         if not isinstance(experiments, list) or not experiments:
             raise ValueError("inner.yaml.experiments 必须是非空列表")
+        # 分别检查实验字段/重复因子，以及评估周期和唯一允许的 o2o 收益口径。
         self._validate_experiments(experiments)
         self._validate_inner_evaluation(config.get("evaluation"))
+        # 股票池必须引用已配置的 profile，实验名和输出根目录也必须明确填写。
         self._require_non_empty_string(config, "stock_pool_name")
         profiles = config.get("stock_pool_profiles")
         if not isinstance(profiles, dict) or config["stock_pool_name"] not in profiles:
             raise ValueError("stock_pool_name 必须存在于 stock_pool_profiles")
         self._require_non_empty_string(config, "experiment_name")
         self._require_non_empty_string(config, "output_root")
+        # 所有相对路径都以入口 YAML 所在目录解析，避免受启动工作目录影响。
         output_root = self._resolve_config_path(config, "output_root")
         factor_dir = self._resolve_config_path(config, "factor_definition_dir")
         self.direction_output_path = self._resolve_config_path(config, "direction_output_file")
+        # 按文件名顺序加载分类定义，校验风格分类和重名，再确认实验因子全部有定义。
         definitions = load_factor_definitions(factor_dir)
         definition_names = [row.get("name") for row in definitions if isinstance(row, dict)]
         missing = sorted(set(row["factor_name"] for row in experiments) - set(definition_names))
         if missing:
             raise ValueError(f"因子配置缺少 Inner 目标因子定义: factors={missing}")
+        # 将解析后的定义和路径回填为实际运行配置，供各组件使用并保存快照。
         config["factor_definition"] = definitions
         config["output_root"] = str(output_root)
         config["factor_definition_dir"] = str(factor_dir)
         config["direction_output_file"] = str(self.direction_output_path)
         config["description"] = description
+        # 复合因子只能依赖本轮排在它前面的实验，保证合成时子因子结果和方向已就绪。
         self._validate_composite_dependencies(experiments, definitions)
         return config
 
@@ -143,6 +174,8 @@ class EnhancedTestRunner:
         if set(research_result) != {"o2o"}:
             raise ValueError(f"Inner 方向只接受唯一 o2o 结果，实际={list(research_result)}")
         stats = research_result["o2o"]["ic_stats_periods_dict_processed"]
+        # 下游严格校验周期和 IC 统计，以有效节点数加权 IC 均值的符号确定 ±1。
+        # 加权得分为零或目标因子已存在都会报错；成功则连同统计依据和 run_id 一起写入。
         return resolve_and_store_inner_direction(
             factor_name=factor_name,
             configured_periods=config["evaluation"]["forward_periods"],
@@ -162,6 +195,7 @@ class EnhancedTestRunner:
                 for row in results
             ],
         }
+        # 仅保存运行级索引信息，详细评估矩阵和统计已由逐因子存储流程另行保存。
         (self.run_dir / "summary.json").write_text(
             json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
         )
@@ -171,8 +205,10 @@ class EnhancedTestRunner:
         document = self._load_yaml_mapping(self.direction_output_path)
         factors = document.get("factors")
         names = [row["factor_name"] for row in results]
+        # 本轮任一因子缺少持久化方向都视为失败，不生成不完整的方向快照。
         if not isinstance(factors, dict) or any(name not in factors for name in names):
             raise RuntimeError(f"方向配置缺少本次 Inner 结果: factors={names}")
+        # 只截取本轮已完成因子，保留每个因子的方向、统计依据和来源运行标识。
         snapshot = {"factors": {name: factors[name] for name in names}}
         target = self.run_dir / "resolved_factors.yaml"
         target.write_text(
@@ -203,12 +239,15 @@ class EnhancedTestRunner:
         for index, experiment in enumerate(experiments):
             definition = definitions_by_name[experiment["factor_name"]]
             if definition.get("action") != "composite":
+                # 普通因子没有子因子执行顺序要求，直接检查下一项。
                 continue
+            # 复合因子的基础字段在此表示子因子名，必须显式提供非空列表。
             sub_factor_names = definition.get("cal_require_base_fields")
             if not isinstance(sub_factor_names, list) or not sub_factor_names:
                 raise ValueError(
                     f"复合因子 {experiment['factor_name']} 必须配置非空子因子列表"
                 )
+            # 只认可当前实验之前的因子；缺失或排在后面的子因子均不满足依赖。
             earlier = {row["factor_name"]: row for row in experiments[:index]}
             missing = [name for name in sub_factor_names if name not in earlier]
             if missing:
@@ -228,6 +267,7 @@ class EnhancedTestRunner:
                 )
             if not all(isinstance(row[key], str) and row[key] for key in expected):
                 raise ValueError(f"inner.yaml.experiments[{index}] 的名称必须是非空字符串")
+        # 条目逐个合法后，再检查整轮名称唯一，避免同名因子重复研究和写入方向。
         names = [row["factor_name"] for row in experiments]
         if len(names) != len(set(names)):
             raise ValueError(f"Inner 同一运行不得重复研究同名因子: factors={names}")
@@ -244,6 +284,7 @@ class EnhancedTestRunner:
         # 仅允许有效的 inner 评估配置：正整数周期、无重复、固定 o2o 计算方式。
         if not isinstance(evaluation, dict):
             raise ValueError("inner.yaml.evaluation 必须是映射")
+        # 周期必须是非空的正整数列表；bool 虽属于 int 子类，也不能作为天数。
         periods = evaluation.get("forward_periods")
         if not isinstance(periods, list) or not periods:
             raise ValueError("inner.yaml.evaluation.forward_periods 必须是非空列表")
@@ -251,6 +292,7 @@ class EnhancedTestRunner:
             raise ValueError(f"Inner 周期必须是正整数: periods={periods!r}")
         if len(periods) != len(set(periods)):
             raise ValueError(f"Inner 周期不得重复: periods={periods!r}")
+        # 本入口只接受唯一 o2o 口径，以便后续从同一口径的 IC 统计确定方向。
         if evaluation.get("returns_calculator") != ["o2o"]:
             raise ValueError("Inner 当前仅支持 returns_calculator: ['o2o']")
 

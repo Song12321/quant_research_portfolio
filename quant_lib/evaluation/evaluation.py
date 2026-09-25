@@ -54,6 +54,7 @@ def calculate_forward_returns_tradable_o2o(period: int,
     entry_mask 同样按信号日 T 索引，表示 T+1 的买入资格。
     包含了生存偏差过滤和截面去极值处理。
     """
+    # 买入掩码必须与价格完全同形，且为无缺失布尔值，避免隐式对齐改变样本。
     if not isinstance(entry_mask, pd.DataFrame):
         raise TypeError(f"O2O entry_mask 必须是 DataFrame，实际为 {type(entry_mask).__name__}")
     if not open_df.index.equals(entry_mask.index) or not open_df.columns.equals(
@@ -275,6 +276,7 @@ def calculate_ic(
     ic_series_periods_dict = {}
     if factor_df.empty or price_df.empty:
         raise ValueError("输入的因子或价格数据为空，无法计算IC。")
+    # 逐周期生成非重叠 IC 序列，再汇总均值、波动、显著性和覆盖率。
     for period in forward_periods:
         ic_series_cleaned = calculate_non_overlapping_ic_series(factor_df, returns_calculator,period,min_stocks)
         total_ic_nodes = len(factor_df.index[:-period:period])
@@ -284,6 +286,7 @@ def calculate_ic(
         ic_std = ic_series_cleaned.std()
         ic_ir = ic_mean / ic_std if ic_std > 0 else np.nan
         ic_t_stat, ic_p_value = stats.ttest_1samp(ic_series_cleaned, 0)
+        # 除普通 t 检验外，再计算考虑自相关和异方差的 Newey-West 检验。
         ic_new_t_stat, ic_new_p_value = _calculate_newey_west_tstat(ic_series_cleaned)
 
         # 胜率！。（表示正确出现的次数/总次数）
@@ -356,6 +359,7 @@ def calculate_non_overlapping_ic_series(
     if valid_dates.empty:
         raise ValueError(f"没有任何日期满足最小股票数量({min_stocks})要求，无法计算IC。")
 
+    # 仅对满足配对数量门槛的日期，逐截面计算因子与未来收益的相关系数。
     ic_series = factor_sampled.loc[valid_dates].corrwith(
         returns_sampled.loc[valid_dates],
         axis=1,
@@ -622,6 +626,7 @@ def calculate_top_quantile_turnover_dict(        factor_df: pd.DataFrame,
                                                  target_quantile: int = 5  # 默认为做多头部（第5组）
 
                                                  ) -> Dict[str, pd.Series]:
+        # 逐周期生成成员换手序列；当前固定传入组号 5，未使用 target_quantile 参数。
         ret = {}
         for period in forward_periods:
             ret[f'{period}d'] = calculate_top_quantile_turnover(factor_df, period, n_quantiles, 5)
@@ -698,6 +703,7 @@ def calculate_top_quantile_turnover(
     return turnover_df['turnover']
 
 def get_non_overlapping_dates(period, all_dates):
+    # 从首日每隔 period 个位置采样，供 IC、分层统计和换手共用。
     non_overlapping_dates = []
     i = 0
     while i < len(all_dates):
@@ -1029,6 +1035,7 @@ def calculate_quantile_daily_returns(
         Dict[str, pd.DataFrame]: 只有一个key的字典，值是分层组合的每日收益DataFrame。
     """
     logger.info("  > 正在计算分层组合的【每日】收益率 (用于绘图)...")
+    # 固定 period=1，因此 T 日信号对应 T+1 开盘至 T+2 开盘的收益。
     forward_returns_1d = returns_calculator(period=1)
     # 2. 有效域掩码：显式定义分析样本
     # 单一事实来源 - 明确定义所有有效的(date, stock)坐标点

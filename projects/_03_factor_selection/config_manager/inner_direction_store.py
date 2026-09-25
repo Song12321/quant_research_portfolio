@@ -15,6 +15,7 @@ PathLike = Union[str, os.PathLike]
 
 
 def _period_keys(configured_periods: Sequence[int]) -> list[str]:
+    # 将正整数周期统一为结果字典使用的 5d 等键，并拒绝空列表和重复周期。
     if not configured_periods:
         raise ValueError("Inner 方向计算失败：配置周期列表不能为空")
     keys = []
@@ -32,6 +33,7 @@ def _period_keys(configured_periods: Sequence[int]) -> list[str]:
 def _extract_ic_means_and_valid_days(
     period_keys: list[str], ic_stats: Mapping[str, Mapping[str, object]]
 ) -> tuple[dict[str, float], dict[str, int]]:
+    # 先验证统计结构和周期集合完全匹配，防止遗漏某个配置周期后仍计算方向。
     if not isinstance(ic_stats, Mapping):
         raise TypeError(
             "Inner 方向计算失败：ic_stats_periods_dict_processed 必须是映射"
@@ -42,6 +44,7 @@ def _extract_ic_means_and_valid_days(
             "Inner 方向计算失败：IC 统计周期与配置周期不一致，"
             f"实际={actual_periods!r}, 预期={period_keys!r}"
         )
+    # 逐周期提取有限 IC 均值和正整数有效节点数，作为加权方向的唯一输入。
     means = {}
     valid_days = {}
     for key in period_keys:
@@ -53,6 +56,7 @@ def _extract_ic_means_and_valid_days(
             raise ValueError(
                 f"Inner 方向计算失败：周期 {key} 的 ic_mean={value!r}，预期为有限数"
             )
+        # 有效节点数决定该周期的权重，缺失或非正整数均无法参与方向计算。
         if "ic_Valid Days" not in stats:
             raise ValueError(f"Inner 方向计算失败：周期 {key} 缺少 ic_Valid Days")
         count = stats["ic_Valid Days"]
@@ -69,6 +73,7 @@ def _extract_ic_means_and_valid_days(
 def _calculate_sample_weighted_score(
     means: Mapping[str, float], valid_days: Mapping[str, int]
 ) -> tuple[float, dict[str, float]]:
+    # 各周期权重 = 该周期有效 IC 节点数 / 总节点数；加权求和得到方向得分。
     total_valid_days = math.fsum(valid_days.values())
     weights = {key: valid_days[key] / total_valid_days for key in means}
     score = math.fsum(means[key] * weights[key] for key in means)
@@ -76,6 +81,7 @@ def _calculate_sample_weighted_score(
 
 
 def _load_direction_document(output_path: Path) -> dict:
+    # 增量写入要求已有合法方向文档，文件不存在或根结构不符时直接报错。
     if not output_path.is_file():
         raise FileNotFoundError(f"方向配置不存在，无法增量写入：path={output_path}")
     with output_path.open("r", encoding="utf-8") as file:
@@ -90,6 +96,7 @@ def _load_direction_document(output_path: Path) -> dict:
 
 
 def _atomic_write_yaml(output_path: Path, document: dict) -> None:
+    # 先在目标目录完整写入临时 YAML 并刷盘，再原子替换目标，避免留下半份配置。
     temporary_path = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -101,6 +108,7 @@ def _atomic_write_yaml(output_path: Path, document: dict) -> None:
             file.flush()
             os.fsync(file.fileno())
         os.replace(temporary_path, output_path)
+    # 无论写入或替换是否成功，都清理本次尚未被替换掉的临时文件。
     finally:
         if temporary_path is not None and temporary_path.exists():
             temporary_path.unlink()
@@ -118,22 +126,26 @@ def resolve_and_store_inner_direction(
         raise ValueError("Inner 方向写入失败：factor_name 必须是非空字符串")
     if not isinstance(inner_run_id, str) or not inner_run_id.strip():
         raise ValueError("Inner 方向写入失败：inner_run_id 必须是非空字符串")
+    # 校验周期及 IC 统计后，按有效节点数加权计算方向得分。
     period_keys = _period_keys(configured_periods)
     means, valid_days = _extract_ic_means_and_valid_days(
         period_keys, ic_stats_periods_dict_processed
     )
     direction_score, weights = _calculate_sample_weighted_score(means, valid_days)
+    # 得分正负对应 +1/-1；恰为零不能确定方向，必须报错。
     if direction_score == 0:
         raise ValueError(
             f"Inner 方向计算失败：因子 {factor_name} 的加权多周期 ic_mean 为 0"
         )
     direction = 1 if direction_score > 0 else -1
+    # 加载已有方向文档，只允许新增当前因子，禁止覆盖已冻结的同名记录。
     target = Path(output_path)
     document = _load_direction_document(target)
     if factor_name in document["factors"]:
         raise ValueError(
             f"Inner 方向写入失败：因子 {factor_name} 已存在，禁止覆盖，path={target}"
         )
+    # 连同各周期均值、权重和来源 run_id 一起保存，便于复核方向依据。
     document["factors"][factor_name] = {
         "direction": direction,
         "direction_score": direction_score,
@@ -141,5 +153,6 @@ def resolve_and_store_inner_direction(
         "direction_weight_by_period": weights,
         "inner_run_id": inner_run_id,
     }
+    # 完整文档替换成功后才返回方向；Runner 随后将该方向登记到本轮引擎。
     _atomic_write_yaml(target, document)
     return direction

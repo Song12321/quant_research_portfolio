@@ -74,10 +74,13 @@ class FactorResultsManager:
                              returns_calculator_func_name: str,  # 新增参数，用于区分 'c2c' 或 'o2o'
                              results: Dict):
         """严格保存 processed 因子研究产物。"""
+        # 保存前严格核对 processed 结果字段，拒绝缺失或多余内容。
         self._validate_result_contract(results)
+        # 以股票池、因子、收益口径和研究窗口组织产物目录。
         run_version = f"{start_date.replace('-', '')}_{end_date.replace('-', '')}"
         output_path = Path(self.results_dir) / stock_index / factor_name / returns_calculator_func_name / run_version
         output_path.mkdir(parents=True, exist_ok=True)
+        # 先拒绝混入旧 raw/F-M 产物，再分别写统计 JSON 和矩阵/序列 Parquet。
         self._reject_legacy_artifacts(output_path)
         self._save_summary(output_path, results)
         self._save_result_frames(output_path, results)
@@ -85,6 +88,7 @@ class FactorResultsManager:
 
     # 执行 _validate_result_contract 对应逻辑。
     def _validate_result_contract(self, results: Dict) -> None:
+        # 检查完整字段集合，避免部分评估结果缺失却被当作保存成功。
         missing_keys = self.RESULT_KEYS - results.keys()
         if missing_keys:
             raise ValueError(f"processed 因子研究结果缺少字段: {sorted(missing_keys)}")
@@ -94,6 +98,7 @@ class FactorResultsManager:
 
     # 执行 _reject_legacy_artifacts 对应逻辑。
     def _reject_legacy_artifacts(self, output_path: Path) -> None:
+        # 扫描旧版产物文件名；发现冲突只报错，不在研究过程中自动删除。
         legacy_files = sorted(
             path.name
             for pattern in self.LEGACY_FILE_PATTERNS
@@ -107,11 +112,13 @@ class FactorResultsManager:
 
     # 执行 _save_summary 对应逻辑。
     def _save_summary(self, output_path: Path, results: Dict) -> None:
+        # 仅提取 IC、分层及换手统计；完整因子值和时间序列由另一个保存步骤处理。
         summary_stats = {
             'ic_analysis_processed': results["ic_stats_periods_dict_processed"],
             'quantile_backtest_processed': results["quantile_stats_periods_dict_processed"],
             'top_q_turnover': results["top_q_turnover_stats_periods_dict"],
         }
+        # 递归转换 pandas/numpy 对象后写入 JSON，保留中文和缩进便于阅读。
         with open(output_path / 'summary_stats.json', 'w', encoding='utf-8') as f:
             json.dump(
                 self._make_serializable(summary_stats),
@@ -123,6 +130,7 @@ class FactorResultsManager:
 
     @staticmethod
     def _save_result_frames(output_path: Path, results: Dict) -> None:
+        # 保存未按次日买入资格裁剪的 processed 信号，以及逐周期 IC、分层和每日分层收益。
         results["processed_factor_df"].to_parquet(output_path / 'processed_factor.parquet')
         for period, series in results["ic_series_periods_dict_processed"].items():
             series.to_frame(name='ic_series_processed').to_parquet(
@@ -148,6 +156,7 @@ class FactorResultsManager:
                 str(index): {str(column): self._make_serializable(value) for column, value in row.items()}
                 for index, row in obj.iterrows()
             }
+        # 把 numpy 标量、时间戳及缺失值转为 JSON 可表达类型；未知类型在末尾报错。
         if isinstance(obj, (np.bool_, bool)):
             return bool(obj)
         if isinstance(obj, (np.integer, np.floating)):
@@ -214,6 +223,7 @@ class FactorManager:
         清理因子缓存
         提供正式的缓存管理接口，避免直接操作内部属性
         """
+        # 释放本因子计算缓存和临时字段；本轮方向字典及共用股票池仍保留给后续实验。
         cache_size = len(self.factors_cache)
         self.factors_cache.clear()
         self.data_manager.clear_temporary_raw_fields()
@@ -228,6 +238,7 @@ class FactorManager:
             raise ValueError(f"Inner 方向写入失败：因子 {factor_name} 的方向必须为 -1 或 1")
         if factor_name in self.inner_resolved_directions:
             raise ValueError(f"Inner 方向写入失败：因子 {factor_name} 已存在")
+        # 只在名称、取值和重复检查通过后登记，后续合成直接读取本轮冻结方向。
         self.inner_resolved_directions[factor_name] = direction
 
     # 执行 get_inner_resolved_direction 对应逻辑。
@@ -257,6 +268,7 @@ class FactorManager:
         #    直接将 factor_request 透传下去
         raw_factor_df = self.get_raw_factor(factor_request)
 
+        # Inner 入口关闭配置方向应用，以未翻转信号研究 IC，再由本轮结果确定方向。
         if not self.apply_configured_direction:
             return raw_factor_df.copy()
         factor_name = factor_request[0] if isinstance(factor_request, tuple) else factor_request
@@ -695,6 +707,7 @@ class FactorManager:
         """
         if not for_test:
             raise ValueError('必须是用于测试前做的数据提取 因为这里的填充就在专门只给测试自身因子做的填充策略')
+        # 为 Beta 或行业动量补齐必要参数，其余请求按原样交给因子计算入口。
         REQUEST = self.check_and_return_right_request(factor_request, stock_pool_index_name)
         # 1. 获取 T 日收盘可得的因子数据
         factor_data = self.get_raw_factor_for_analysis(REQUEST, for_test)
@@ -712,6 +725,7 @@ class FactorManager:
         """
         【新方法】将因子数据与指定股票池对齐
         """
+        # 提取因子名及目标股票池，将日期和股票列裁剪至同一网格并屏蔽池外样本。
         factor_name_str = factor_request[0] if isinstance(factor_request, tuple) else factor_request
         pool = self.data_manager.stock_pools_dict[stock_pool_index_name]
 

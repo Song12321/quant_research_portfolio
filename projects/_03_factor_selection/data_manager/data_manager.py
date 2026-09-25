@@ -258,6 +258,7 @@ class DataManager:
         if field_name == 'close_raw':
             self.raw_dfs[field_name] = loaded[field_name]
             return self.raw_dfs[field_name]
+        # 新加载字段统一对齐常驻收盘价网格，并进入逐因子结束时释放的临时缓存。
         aligned_df = loaded[field_name].reindex(index=base_df.index, columns=base_df.columns)
         self.temporary_raw_dfs[field_name] = aligned_df
         return aligned_df
@@ -281,8 +282,10 @@ class DataManager:
 
     def get_entry_pool(self, pool_name: str) -> pd.DataFrame:
         """T 行对应 T 日信号及 T+1 开盘买入资格，同次研究的所有因子共用。"""
+        # 首次构建并缓存买入资格；同轮各因子复用，避免评价样本口径发生变化。
         if pool_name not in self._entry_pools:
             pool = self.stock_pools_dict[pool_name]
+            # 从停复牌事件得到各交易日 09:30 可交易状态，再结合原始开盘价和涨停价。
             tradeable = build_open_tradeable_mask(
                 load_suspend_d_df(), pool.index, list(pool.columns)
             )
@@ -290,6 +293,7 @@ class DataManager:
                 self.get_raw_field(field).reindex(index=pool.index, columns=pool.columns)
                 for field in ('open_raw', 'up_limit')
             ]
+            # 将次日可开盘买入条件移到信号日，与 T 日基础池取交集；最后一日无次日资格。
             entry_pool = apply_open_buy_filter(pool, *prices, tradeable)
             logger.info(
                 f'{pool_name} 开盘买入过滤剔除 {(pool & ~entry_pool).sum().sum()} 个股票日样本'
@@ -975,6 +979,7 @@ def fill_self(factor_name, df, _existence_matrix):
 def fill_and_align_by_stock_pool(factor_name=None, df=None,
                                  stock_pool_df: pd.DataFrame = None,
                                  _existence_matrix: pd.DataFrame = None):  # 这个只是用于填充pct_chg这类数据的决策判断
+    # 当前执行路径仅按股票池对齐和过滤，下面的 fill_self 调用仍被注释，不会填充缺失值。
     if stock_pool_df is None or stock_pool_df.empty:
         raise ValueError("stock_pool_df 必须传入且不能为空的 DataFrame")
     # 定义不同类型数据的填充策略

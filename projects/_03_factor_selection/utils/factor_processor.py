@@ -92,8 +92,10 @@ class FactorProcessor:
         # print("=" * 80 + "\n")
         log_flow_start(f"{target_factor_name}因子进入因子预处理...")
 
+        # 复制信号再按顺序处理，避免改写引擎缓存；所有截面步骤保留原日期和股票语义。
         processed_target_factor_df = factor_df.copy()
 
+        # 配置了行业去极值或行业标准化时，历史行业映射必须由上游提供。
         if pit_map is None and any(
             self.preprocessing_config.get(step, {}).get("by_industry") is not None
             for step in ("winsorization", "standardization")
@@ -118,6 +120,7 @@ class FactorProcessor:
 
         # 统计处理结果
         from projects._03_factor_selection.factor_manager.factor_manager import FactorManager
+        # 预处理完成后复用因子质量检查，严重异常会阻止信号进入后续评价。
         FactorManager._validate_data_quality(processed_target_factor_df ,target_factor_name,'预处理完之后：')
 
         return processed_target_factor_df
@@ -238,6 +241,7 @@ class FactorProcessor:
         else:
             raise ValueError(f"不支持的 winsorization.method: {method!r}")
 
+        # 行业去极值另需明确层级及最小样本数；当前此分支只支持 MAD。
         industry_config = config.get('by_industry')
         if industry_config is None:
             return
@@ -333,6 +337,7 @@ class FactorProcessor:
         if merged_df.empty:
             return pd.Series(index=daily_factor_series.index, dtype=float)
 
+        # 同时计算主行业和上一级行业统计，供下面按样本量逐股票选择裁剪边界。
         merged_df = self._build_industry_mad_stats(merged_df, primary_col, fallback_col)
 
         # L2 样本不足时统一改用所属 L1 的统计量，避免小截面的中位数和 MAD 不稳定。
@@ -411,6 +416,7 @@ class FactorProcessor:
 
                 daily_industry_map = pit_industry_map.get_map_for_date(date)
 
+                # 对当天执行行业 MAD 裁剪；行业缺失或回溯后样本仍不足的股票会记录原因并保留 NaN。
                 processed_data[date] = self._winsorize_cross_section_fallback(
                     daily_factor_series=daily_factor_series,
                     daily_industry_map=daily_industry_map,
@@ -679,10 +685,12 @@ class FactorProcessor:
     # 你的辅助函数稍作调整，专注于计算本身
     def _zscore_series(self, s: pd.Series) -> pd.Series:
         """【辅助函数】对单个Series进行Z-Score标准化"""
+        # 有效值不足两个时只把有效位置置零，原有缺失位置仍保持 NaN。
         if s.count() < 2:
             result = s.copy()
             result.loc[result.notna()] = 0.0
             return result
+        # 标准差为零或非有限值时同样只处理有效位置，否则按截面均值和标准差缩放。
         std_val = s.std()
         if not np.isfinite(std_val) or std_val == 0:
             result = s.copy()
@@ -880,6 +888,7 @@ class FactorProcessor:
         YAML 是中性化策略的唯一来源；只动态排除目标因子本身，防止
         自身回归。不会再按 style_category 静默替换配置。
         """
+        # 从 YAML 取得风险变量清单，再按目标类型排除自身，防止把目标因子完全回归掉。
         base_neutralization_list = self.get_configured_neutralization_factors()
         final_list = []
         for risk_factor in base_neutralization_list:

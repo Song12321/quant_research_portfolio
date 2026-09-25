@@ -50,6 +50,7 @@ class FactorCalculator:
 
     # === 规模 (Size) ===
     def _calculate_log_circ_mv(self) -> pd.DataFrame:
+        # 读取流通市值，仅正值进入对数计算；下方 ffill 未接收返回值，不会改变原矩阵。
         circ_mv_df = self.factor_manager.get_raw_factor('circ_mv').copy()
         # 2. 【核心步骤】因为市值是“状态量”，所以使用ffill填充非交易日
         #    这确保了公司价值状态的连续性。
@@ -115,6 +116,7 @@ class FactorCalculator:
 
     # === 三低一高 (Three Low One High) ===
     def _get_three_low_one_high_config(self) -> Dict[str, float]:
+        # 集中设置权重、回看窗口和改善期，再覆盖研究配置中显式提供的同名项。
         cfg = {
             "weight_long_term": 0.7,
             "weight_short_term": 0.3,
@@ -139,6 +141,7 @@ class FactorCalculator:
         if not dfs:
             raise ValueError("三低一高因子对齐失败：未提供任何数据矩阵。")
 
+        # 取所有依赖矩阵的日期、股票交集，无共同网格时报错。
         common_index = dfs[0].index
         common_columns = dfs[0].columns
         for df in dfs[1:]:
@@ -154,6 +157,7 @@ class FactorCalculator:
     def _get_financial_l1_codes(self) -> set:
         if self._three_low_one_high_financial_l1_codes is not None:
             return self._three_low_one_high_financial_l1_codes
+        # 按行业名称识别金融一级行业代码，并在计算器内缓存集合。
         cols = ["l1_code", "l1_name"]
         industry_df = pd.read_parquet(get_market_data_path('industry_record.parquet'), columns=cols)
         mask = industry_df["l1_name"].astype(str).str.contains("银行|非银|证券|保险|金融")
@@ -165,6 +169,7 @@ class FactorCalculator:
 
     @staticmethod
     def _ts_rank_df(df: pd.DataFrame, window: int, min_periods: int) -> pd.DataFrame:
+        # 逐滚动窗口计算不大于末值的有效观测占比，末值缺失则返回 NaN。
         def _rank_last(values: np.ndarray) -> float:
             current = values[-1]
             if np.isnan(current):
@@ -177,12 +182,14 @@ class FactorCalculator:
         return df.rolling(window=window, min_periods=min_periods).apply(_rank_last, raw=True)
 
     def _calc_ts_rank(self, df: pd.DataFrame, cfg: Dict[str, float]) -> pd.DataFrame:
+        # 非日期索引按交易日窗口计算；日期索引按配置选择月末采样或日频滚动。
         if not isinstance(df.index, pd.DatetimeIndex):
             window_days = int(cfg["ts_window_months"] * cfg["trading_days_per_month"])
             min_periods = int(max(6, window_days * 0.2))
             return self._ts_rank_df(df, window_days, min_periods)
 
         if cfg.get("ts_rank_use_monthly", True):
+            # 取月末值计算历史分位，再前向映射到日频；最少有效月数由配置控制。
             monthly = df.resample("M").last()
             min_periods = int(cfg.get("ts_rank_min_periods_months", max(6, cfg["ts_window_months"] // 5)))
             rank_m = self._ts_rank_df(monthly, int(cfg["ts_window_months"]), min_periods)
@@ -211,6 +218,7 @@ class FactorCalculator:
         """
         cfg = self._get_three_low_one_high_config()
 
+        # 读取市值和财报指标，构造盈利、账面权益与现金流相对市值的比率。
         total_mv = self.factor_manager.get_raw_factor("total_mv")
         net_profit_ttm = self.factor_manager.get_raw_factor("net_profit_ttm")
         total_equity = self.factor_manager.get_raw_factor("total_equity")
@@ -220,23 +228,27 @@ class FactorCalculator:
         bm_ratio = total_equity / total_mv.replace(0, np.nan)
         cfo_yield = cashflow_ttm / total_mv.replace(0, np.nan)
 
+        # 另取股息率和 EBIT；企业价值按总市值加总负债计算，零分母转为缺失。
         divy = self.factor_manager.get_raw_factor("dv_ttm")
         ebit_ttm = self.factor_manager.get_raw_factor("ebit_ttm")
         total_debt = self.factor_manager.get_raw_factor("total_debt")
         ev = total_mv.add(total_debt, fill_value=np.nan)
         ebit_ev = ebit_ttm / ev.replace(0, np.nan)
 
+        # 裁剪到共同日期和股票，保证历史分位和截面得分使用同一网格。
         common_index, common_columns, aligned = self._align_frames(
             [total_mv, ep_ratio, bm_ratio, cfo_yield, divy, ebit_ev]
         )
         total_mv, ep_ratio, bm_ratio, cfo_yield, divy, ebit_ev = aligned
 
+        # 用 EP/BP 的倒数构造 PE/PB 代理，历史分位越低，长期低估值得分越高。
         pe_proxy = 1.0 / ep_ratio.replace(0, np.nan)
         pb_proxy = 1.0 / bm_ratio.replace(0, np.nan)
         rank_pe = self._calc_ts_rank(pe_proxy, cfg)
         rank_pb = self._calc_ts_rank(pb_proxy, cfg)
         score_ts = 1.0 - (rank_pe + rank_pb) / 2.0
 
+        # 按每日历史一级行业区分金融与非金融，分别选择短期估值指标。
         pit_map = self.factor_manager.data_manager.pit_map
         fin_codes = self._get_financial_l1_codes()
         daily_scores = {}
@@ -247,6 +259,7 @@ class FactorCalculator:
             l1 = ind_map["l1_code"].reindex(common_columns)
             is_fin = l1.isin(fin_codes)
 
+            # 金融使用 BP、EP、股息率；非金融使用 EP、现金流收益率和 EBIT/EV。
             fin_list = [bm_ratio.loc[date], ep_ratio.loc[date]]
             fin_list.append(divy.loc[date])
 
@@ -260,6 +273,7 @@ class FactorCalculator:
 
             daily_scores[date] = score
 
+        # 恢复得分宽表并对齐，再按配置的长期/短期权重合成价值信号。
         score_cs = pd.DataFrame.from_dict(daily_scores, orient="index")
         score_cs = score_cs.reindex(index=common_index, columns=common_columns)
         score_ts = score_ts.reindex(index=common_index, columns=common_columns)
@@ -273,10 +287,12 @@ class FactorCalculator:
         cfg = self._get_three_low_one_high_config()
         price = self.factor_manager.get_raw_factor("close_hfq")
 
+        # 长期奖励相对自身历史较低的价格，短期使用负对数价格体现低价偏好。
         rank_price = self._calc_ts_rank(price, cfg)
         score_ts = 1.0 - rank_price
 
         score_cs = -np.log(price.astype(float).clip(lower=0.01))
+        # 取两部分共同网格，按配置权重加总。
         score_ts, score_cs = score_ts.align(score_cs, join="inner", axis=None)
         return cfg["weight_long_term"] * score_ts + cfg["weight_short_term"] * score_cs
 
@@ -288,6 +304,7 @@ class FactorCalculator:
         cfg = self._get_three_low_one_high_config()
         turn = self.factor_manager.get_raw_factor("turnover_rate")
         amount = self.factor_manager.get_raw_factor("amount")
+        # 成交额先滚动平均，再与换手率分别做 log1p 压缩，减小极端活跃值的影响。
         amount_20d = amount.rolling(
             window=cfg["attention_amount_window"],
             min_periods=max(5, cfg["attention_amount_window"] // 2),
@@ -297,6 +314,7 @@ class FactorCalculator:
             np.log1p(amount_20d.astype(float).clip(lower=0)),
         ]
 
+        # 对齐并等权合并两项活跃度，再取负号，使低活跃度对应高分。
         common_index, common_columns, aligned = self._align_frames(metric_dfs)
         combined = sum(aligned) / len(aligned)
         return -combined
@@ -310,6 +328,7 @@ class FactorCalculator:
         """
         cfg = self._get_three_low_one_high_config()
 
+        # 加载市值、利润、现金流、资产及盈利能力，准备变化项和质量项。
         total_mv = self.factor_manager.get_raw_factor("total_mv")
         net_profit_ttm = self.factor_manager.get_raw_factor("net_profit_ttm")
         cashflow_ttm = self.factor_manager.get_raw_factor("cashflow_ttm")
@@ -319,19 +338,23 @@ class FactorCalculator:
         opmargin_ttm = self.factor_manager.get_raw_factor("opmargin_ttm")
         fcf_ttm = self.factor_manager.get_raw_factor("free_cashflow_ttm")
 
+        # 统一所有依赖的日期和股票，保证差分与比率逐元素对应。
         common_index, common_columns, aligned = self._align_frames(
             [total_mv, net_profit_ttm, cashflow_ttm, total_assets, roe_ttm, opmargin_ttm, fcf_ttm]
         )
         total_mv, net_profit_ttm, cashflow_ttm, total_assets, roe_ttm, opmargin_ttm, fcf_ttm = aligned
 
+        # 按配置交易日间隔求 ROE、利润率和自由现金流变化，现金流变化除以市值。
         shift_days = int(cfg["improve_shift_days"])
         d_roe = roe_ttm - roe_ttm.shift(shift_days)
         d_opm = opmargin_ttm - opmargin_ttm.shift(shift_days)
         fcf_shift = (fcf_ttm - fcf_ttm.shift(shift_days)) / total_mv.replace(0, np.nan)
 
+        # 质量项比较经营现金流与利润，并扣除利润相对现金流的应计部分。
         cash_q = cashflow_ttm / net_profit_ttm.replace(0, np.nan)
         accrual = (net_profit_ttm - cashflow_ttm) / total_assets.replace(0, np.nan)
 
+        # 变化项三项等权，质量项两项等权，再按 0.6/0.4 合成改善得分。
         improve_a = (d_roe + d_opm + fcf_shift) / 3.0
         improve_b = (cash_q - accrual) / 2.0
 
@@ -880,6 +903,7 @@ class FactorCalculator:
         """
         计算滚动12个月的营业利润率 (TTM)。
         """
+        # 分别计算利润与收入 TTM，对齐后相除，零收入和无穷值保留为缺失。
         op_profit_ttm = self.factor_manager.get_raw_factor('operate_profit_ttm')
         revenue_ttm = self.factor_manager.get_raw_factor('total_revenue_ttm')
         op_profit_aligned, revenue_aligned = op_profit_ttm.align(revenue_ttm, join='inner', axis=None)
@@ -1558,6 +1582,7 @@ class FactorCalculator:
 
         ttm_long_df = ttm_long_df.sort_values(by=['ts_code', 'end_date'])
         ttm_long_df['f_ann_date'] = pd.to_datetime(ttm_long_df['f_ann_date'])
+        # 将实际公告日映射到预热日历的可用交易日，再展开为股票宽表。
         ttm_long_df['trade_date'] = map_ann_dates_to_tradable_dates(
             ann_dates=ttm_long_df['f_ann_date'],
             trading_dates = self.factor_manager.data_manager._prebuffer_trading_dates
@@ -1700,6 +1725,7 @@ class FactorCalculator:
 
         return single_q_long_df
     def _calculate_hfq_price(self, field: str) -> pd.DataFrame:
+        # 原始价格乘校验后的复权因子，开盘/收盘等价格共用此入口。
         raw = self.factor_manager.get_raw_factor(field + '_raw')
         factors = self.factor_manager.get_raw_factor('hfq_adj_factor')
         # 延续 pro_bar 的两位小数口径，计算结果只进入已有因子缓存。
@@ -1708,9 +1734,11 @@ class FactorCalculator:
         )
 
     def _calculate_close_hfq(self) -> pd.DataFrame:
+        # 通过统一引擎计算后复权收盘价，供信号构造及评估入口使用。
         return self._calculate_hfq_price('close')
 
     def _calculate_open_hfq(self) -> pd.DataFrame:
+        # 通过统一引擎计算后复权开盘价，后续用于 T+1 建仓的 O2O 标签。
         return self._calculate_hfq_price('open')
 
     def _calculate_high_hfq(self) -> pd.DataFrame:
@@ -1811,6 +1839,7 @@ class FactorCalculator:
     #     close_raw = self.factor_manager.get_raw_factor('close_raw')#当天真实价格
 
     def _calculate_hfq_adj_factor(self) -> pd.DataFrame:
+        # 所有有行情的位置都必须存在有限且为正的复权因子，否则停止价格计算。
         factors = self.factor_manager.get_raw_factor('adj_factor')
         close_raw = self.factor_manager.get_raw_factor('close_raw')
         if (close_raw.notna() & (~np.isfinite(factors) | factors.le(0))).any().any():
@@ -1900,18 +1929,22 @@ class FactorCalculator:
 
     ##基础换算！
     def _calculate_circ_mv(self):
+        # 原始流通市值由万元换算为元，与财报金额口径对应。
         circ_mv = self.factor_manager.data_manager.get_raw_field('circ_mv').copy(deep=True)
         circ_mv = circ_mv * 10000
         return circ_mv
     def _calculate_total_mv(self):
+        # 原始总市值由万元换算为元，供估值和现金流收益率作分母。
         total_mv = self.factor_manager.data_manager.get_raw_field('total_mv').copy(deep=True)
         total_mv = total_mv * 10000
         return total_mv
     def _calculate_amount(self):
+        # 成交额由千元换算为元，后续低关注因子使用此序列。
         amount = self.factor_manager.data_manager.get_raw_field('amount').copy(deep=True)
         amount = amount * 1000
         return amount
     def _calculate_turnover_rate(self):
+        # 百分数形式的换手率除以 100，转成比例形式供计算使用。
         turnover_rate = self.factor_manager.data_manager.get_raw_field('turnover_rate').copy(deep=True)
         turnover_rate = turnover_rate / 100
         return turnover_rate
