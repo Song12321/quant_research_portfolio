@@ -19,7 +19,7 @@ _STOCK_BASIC_FIELDS = (
     'ts_code,symbol,name,area,industry,fullname,enname,cnspell,market,exchange,'
     'curr_type,list_status,list_date,delist_date,is_hs,act_name,act_ent_type'
 )
-_REPORT_KEY = ['ts_code', 'end_date', 'ann_date', 'f_ann_date', 'report_type']
+_REPORT_KEY = ['ts_code', 'end_date', 'ann_date', 'f_ann_date', 'report_type','update_flag']
 _HM_DETAIL_FIELDS = (
     'trade_date,ts_code,ts_name,buy_amount,sell_amount,net_amount,hm_name,hm_orgs,tag'
 )
@@ -47,10 +47,40 @@ def _pro(api: str, **params) -> pd.DataFrame:
 
 
 def _concat(frames) -> pd.DataFrame:
+    """按行拼接接口结果，避免空批次或局部全空列触发类型推断警告。"""
+    # frames 可能是生成器；转成列表后才能多次遍历。
     parts = list(frames)
     if any(not isinstance(part, pd.DataFrame) for part in parts):
         raise TypeError('接口必须返回 DataFrame')
-    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    # 连一个批次都没有时，返回无行、无列的空表。
+    if not parts:
+        return pd.DataFrame()
+
+    # iloc[:0] 只取表头。合并这些表头，记录所有列及首次出现的顺序，
+    # 包括那些只在空批次里出现的列，最后用来恢复完整字段。
+    columns = pd.concat([part.iloc[:0] for part in parts], ignore_index=True).columns
+
+    # notna().any() 判断每列是否至少有一个非空值；
+    # set().union(...) 汇总出“在任意批次中有值”的列名集合。
+    populated = set().union(*(set(part.columns[part.notna().any()]) for part in parts))
+
+    # 零行批次不参与数据拼接；有行但整行全空的批次仍然保留。
+    nonempty = [part for part in parts if len(part)]
+    if not nonempty:
+        # 所有批次都是零行时，仍保留它们的表头和空列类型。
+        return pd.concat(parts, ignore_index=True)
+
+    # 某列在当前批次全空、在其他批次有值时，临时移除当前批次的这列，
+    # 避免它干扰 pandas 的类型推断。例如 [None] 与 [1.5] 拼接时，
+    # 让有值的批次决定类型；concat 会给缺列批次的对应行补上缺失值。
+    # 所有批次中都全空的列不在 populated 中，因此不会被这里删除。
+    # drop 返回新表，不修改原始批次，也不删除任何行。
+    cleaned = [part.drop(columns=[column for column in part.columns
+                                 if column in populated and part[column].isna().all()])
+               for part in nonempty]
+
+    # 按行拼接并重新编号；恢复最初的列顺序，只在零行批次出现的列补为缺失值。
+    return pd.concat(cleaned, ignore_index=True).reindex(columns=columns)
 
 
 def _symbols() -> list[str]:
@@ -102,7 +132,7 @@ def _save(path: Path, frame: pd.DataFrame) -> None:
 def _merge_save(dataset: str, path: Path, new: pd.DataFrame) -> int:
     old = pd.read_parquet(path) if path.exists() else pd.DataFrame()
     # 同键保留新记录，未返回的历史记录继续保留。
-    merged = pd.concat([old, new], ignore_index=True).drop_duplicates(
+    merged = _concat([old, new]).drop_duplicates(
         subset=_KEYS[dataset], keep='last',
     )
     _save(path, merged)

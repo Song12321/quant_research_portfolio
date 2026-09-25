@@ -19,11 +19,11 @@ if __name__ == '__main__':
 
     # updater.update_daily_basic(INITIAL_DATE, END_DATE)  # 增量更新每日指标，如市值、估值、换手率 20200101 -20260913  done
     # updater.update_stk_limit(INITIAL_DATE, END_DATE)  # 增量更新每日涨跌停价格  20200101 -20260913  done
-    updater.update_balancesheet(INITIAL_DATE, END_DATE)  # 按公告日增量更新资产负债表
-    # updater.update_cashflow(INITIAL_DATE, END_DATE)  # 按公告日增量更新现金流量表
-    # updater.update_income(INITIAL_DATE, END_DATE)  # 按公告日增量更新利润表
-    # updater.update_fina_indicator(INITIAL_DATE, END_DATE)  # 按公告日增量更新财务指标
-    # updater.update_dividend()  # 逐股拉取完整分红历史，覆盖保存
-    # updater.update_namechange()  # 逐股拉取完整名称变更历史，合并保存
+    # updater.update_balancesheet(INITIAL_DATE, END_DATE)  # 按公告日增量更新资产负债表 20200101 -20260913  done
+    # updater.update_cashflow(INITIAL_DATE, END_DATE)  # 按公告日增量更新现金流量表 20200101 -20260913  done
+    # updater.update_income(INITIAL_DATE, END_DATE)  # 按公告日增量更新利润表 20200101 -20260913  done
+    # updater.update_fina_indicator(INITIAL_DATE, END_DATE)  # 按公告日增量更新财务指标 20200101 -20260913  done
+    # updater.update_dividend()  # 逐股拉取完整分红历史，覆盖保存 todo 待确定需要吗
+    # updater.update_namechange()  # 逐股拉取完整名称变更历史，合并保存 todo 待确定需要吗
 
-    # updater.update_hm_detail(INITIAL_DATE, END_DATE)  # 增量更新停复牌事件  '20200101' -'20260911'done
+    updater.update_hm_detail(INITIAL_DATE, END_DATE)  # 游资明细  '20200101' -'20260911'done
