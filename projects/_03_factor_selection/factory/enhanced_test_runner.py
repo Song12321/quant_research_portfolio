@@ -1,4 +1,4 @@
-"""按明确的 Inner 配置运行 processed 单因子研究。"""
+"""按 stage 运行 processed 因子研究并冻结或沿用方向。"""
 
 from __future__ import annotations
 
@@ -27,17 +27,18 @@ from quant_lib.config.logger_config import log_success, setup_logger
 
 
 logger = setup_logger(__name__)
-DEFAULT_INNER_CONFIG = Path(__file__).parents[1] / "configs" / "research/inner" / "test.yaml" #todonew 不一定是inner
+DEFAULT_INNER_CONFIG = Path(__file__).parents[1] / "configs" / "research/inner" / "test.yaml"
 
 
 class EnhancedTestRunner:
-    """顺序运行 Inner 因子研究，并在每个因子结束后释放临时数据。"""
+    """顺序运行因子研究，Inner 确定方向，Out / Finalout 沿用方向。"""
 
     def __init__(self, research_config_path: str | Path = DEFAULT_INNER_CONFIG):
         # 记录入口配置路径，并预置本次运行中会变更的状态对象。
         self.research_config_path = Path(research_config_path).resolve()
         self.run_dir: Path | None = None
-        self.direction_output_path: Path | None = None
+        self.direction_path: Path | None = None
+        self.stage = None
         self.data = None
         self.factor_engine = None
         self.evaluator = None
@@ -46,17 +47,17 @@ class EnhancedTestRunner:
     def _initialize_components(self, config: dict) -> None:
         # 数据管理器持有研究配置和共享缓存；实际日期、股票池在 prepare() 中准备。
         self.data = DataManager(config)
-        # 因子引擎绑定同一数据管理器；本轮先研究原始方向，不套用配置中的历史方向。
+        # 同一配置决定阶段；后期引擎仅在初始化时读取一次方向文件。
         self.factor_engine = FactorManager(
             self.data,
             results_dir=self.run_dir / "artifacts",
-            apply_configured_direction=False,
+            config=config,
         )
         # 评估器负责预处理及 IC、分层、换手计算，结果存储器负责写入本轮 artifacts。
         self.evaluator = FactorAnalyzer(self.factor_engine)
         self.result_store = FactorResultsManager(results_dir=self.run_dir / "artifacts")
 
-    def run(self, description: str = "Inner processed 因子研究") -> List[Dict]:
+    def run(self, description: str = "processed 因子研究") -> List[Dict]:
         # 校验研究配置、加载因子定义，创建独立运行目录并保存生效配置。
         config = self._prepare_run(description)
         # 组装共享数据管理器、因子计算引擎、评估器和结果存储器。
@@ -75,6 +76,7 @@ class EnhancedTestRunner:
     def _prepare_run(self, description: str) -> dict:
         # 先完成配置和复合因子依赖校验；校验失败时不会创建运行目录。
         config = self._load_effective_config(description)
+        self.stage = config["stage"]
         # 按输出根目录、研究阶段、时间戳和实验名创建目录，同时建立 artifacts 子目录。
         self.run_dir = create_run_dir(
             Path(config["output_root"]),
@@ -90,7 +92,7 @@ class EnhancedTestRunner:
         self._snapshot_direction_config(results)
         # 写入运行标识、股票池及因子方向列表；全部落盘后才打印完成日志。
         self._write_summary(results, config["stock_pool_name"])
-        log_success(f"Inner 因子研究完成: {len(results)} 个因子，run={self.run_dir.name}")
+        log_success(f"{self.stage} 因子研究完成: {len(results)} 个因子，run={self.run_dir.name}")
 
     def _research_factors(self, config: dict) -> List[Dict]:
         # 股票池名称用于评估，存储名称用于结果目录；所有实验使用同一研究窗口。
@@ -118,10 +120,11 @@ class EnhancedTestRunner:
                         results=result,
                     )
                     del result
-                # 按各周期有效 IC 节点数加权确定正负方向，并增量写入方向配置。
-                direction = self._store_direction(factor_name, research_result, config)
-                # 同时冻结到本轮引擎内存，供后续复合因子读取已完成子因子的方向。
-                self.factor_engine.store_inner_resolved_direction(factor_name, direction)
+                if config["stage"] == "inner":
+                    direction = self._store_direction(factor_name, research_result, config)
+                    self.factor_engine.store_inner_resolved_direction(factor_name, direction)
+                else:
+                    direction = self.factor_engine.get_resolved_direction(factor_name)
                 # 返回列表只保留轻量元信息，当前因子的完整评估数据已保存至 artifacts。
                 results.append(self._result_row(factor_name, stock_pool_name, direction))
                 del research_result
@@ -133,9 +136,9 @@ class EnhancedTestRunner:
     def _load_effective_config(self, description: str) -> dict[str, Any]:
         # 加载配置并做严格校验，再补齐路径、定义与上下文字段后返回生效配置。
         config = self._load_yaml_mapping(self.research_config_path)
-        # 限定 Inner 阶段，并要求至少配置一个实验；不合法时立即终止。
-        if config.get("stage") != "inner":
-            raise ValueError(f"当前入口仅支持 stage=inner，实际={config.get('stage')!r}")
+        # 阶段决定是否推导方向，不能把拼写错误当成后期阶段。
+        if config["stage"] not in ("inner", "out", "finalout"):
+            raise ValueError(f"不支持的 stage: {config['stage']!r}")
         experiments = config.get("experiments")
         if not isinstance(experiments, list) or not experiments:
             raise ValueError("test.yaml.experiments 必须是非空列表")
@@ -151,17 +154,17 @@ class EnhancedTestRunner:
         # 所有相对路径都以入口 YAML 所在目录解析，避免受启动工作目录影响。
         output_root = self._resolve_config_path(config, "output_root")
         factor_dir = self._resolve_config_path(config, "factor_definition_dir")
-        self.direction_output_path = self._resolve_config_path(config, "direction_output_file")
+        self.direction_path = self._resolve_config_path(config, "direction_file")
         # 按文件名顺序加载分类定义，校验风格分类和重名。
         definitions = load_factor_definitions(factor_dir)
         # 将解析后的定义和路径回填为实际运行配置，供各组件使用并保存快照。
         config["factor_definition"] = definitions
         config["output_root"] = str(output_root)
         config["factor_definition_dir"] = str(factor_dir)
-        config["direction_output_file"] = str(self.direction_output_path)
+        config["direction_file"] = str(self.direction_path)
         config["description"] = description
-        # 复合因子只能依赖本轮排在它前面的实验，保证合成时子因子结果和方向已就绪。
-        self._validate_composite_dependencies(experiments, definitions)
+        if config["stage"] == "inner":
+            self._validate_composite_dependencies(experiments, definitions)
         return config
 
     def _store_direction(self, factor_name: str, research_result: dict, config: dict) -> int:
@@ -176,14 +179,14 @@ class EnhancedTestRunner:
             configured_periods=config["evaluation"]["forward_periods"],
             ic_stats_periods_dict_processed=stats,
             inner_run_id=self.run_dir.name,
-            output_path=self.direction_output_path,
+            output_path=self.direction_path,
         )
 
     def _write_summary(self, results: List[Dict], stock_pool_name: str) -> None:
         # 汇总运行结果并落盘，便于外部脚本快速读取。
         summary = {
             "run_id": self.run_dir.name,
-            "stage": "inner",
+            "stage": self.stage,
             "stock_pool_name": stock_pool_name,
             "factors": [
                 {"factor_name": row["factor_name"], "direction": row["direction"]}
@@ -196,12 +199,13 @@ class EnhancedTestRunner:
         )
 
     def _snapshot_direction_config(self, results: List[Dict]) -> None:
-        # 全部完成后保存一次方向快照；每个因子的方向已及时持久化。
-        document = self._load_yaml_mapping(self.direction_output_path)
-        factors = document["factors"]
-        names = [row["factor_name"] for row in results]
-        # 只截取本轮已完成因子，保留每个因子的方向、统计依据和来源运行标识。
-        snapshot = {"factors": {name: factors[name] for name in names}}
+        # 后期只保存内存中实际用过的记录（含子因子），不重读可能已变更的文件。
+        if self.stage == "inner":
+            factors = self._load_yaml_mapping(self.direction_path)["factors"]
+            factors = {row["factor_name"]: factors[row["factor_name"]] for row in results}
+        else:
+            factors = self.factor_engine.used_direction_records
+        snapshot = {"factors": factors}
         target = self.run_dir / "resolved_factors.yaml"
         target.write_text(
             yaml.safe_dump(snapshot, allow_unicode=True, sort_keys=False), encoding="utf-8"
@@ -296,5 +300,5 @@ class EnhancedTestRunner:
 
 
 if __name__ == "__main__":
-    """正式 Inner 研究入口。"""
-    EnhancedTestRunner(DEFAULT_INNER_CONFIG).run('Inner processed 因子研究')
+    """阶段、窗口和方向路径均由研究配置指定。"""
+    EnhancedTestRunner(DEFAULT_INNER_CONFIG).run()

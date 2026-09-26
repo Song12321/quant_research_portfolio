@@ -143,6 +143,10 @@ class FactorAnalyzer:
                 factor_name, factor_data, stock_pool_name
             )
 
+        # 当前目标只在预处理完成后应用一次冻结方向；Inner 保留待研究方向。
+        if self.config["stage"] != "inner":
+            processed = processed * self.factor_manager.get_resolved_direction(factor_name)
+
         # 准备对齐后的价格矩阵供评估入口检查；实际 O2O 标签由已绑定开盘价的计算器生成。
         close_df = self.factor_manager.get_prepare_aligned_factor_for_analysis(
             "close_hfq", stock_pool_name, True
@@ -163,7 +167,7 @@ class FactorAnalyzer:
             evaluation_factor, returns_calculator, self.n_quantiles
         )
         return {
-            # 保留未受 T+1 成交状态影响的信号，供复合因子后续合成、预处理。
+            # 保存实际评价方向的信号，不受 T+1 成交状态影响；合成子因子另行计算。
             "processed_factor_df": processed,
             "ic_series_periods_dict_processed": ic_series,
             "ic_stats_periods_dict_processed": ic_stats,
@@ -190,6 +194,7 @@ class FactorAnalyzer:
         # 依配置执行去极值、中性化和标准化；行业步骤使用按日期查询的历史行业映射。
         return self.factor_processor.process_factor(
             factor_df=factor_data,
+            expected_mask=self.factor_manager.data_manager.stock_pools_dict[stock_pool_name],
             target_factor_name=factor_name,
             neutral_dfs=neutral_dfs,
             style_category=style_category,
@@ -257,7 +262,7 @@ class FactorAnalyzer:
         data_manager = self.factor_manager.data_manager
         # 复合因子走子因子等权合成；普通因子走原始计算及研究股票池对齐。
         is_composite = data_manager.is_composite_factor(factor_name)
-        if is_composite:
+        if is_composite:#todo
             factor_data = FactorSynthesizer(
                 self.factor_manager, self, self.factor_processor
             ).synthesize_equal_factor(factor_name, stock_pool_name)
@@ -266,7 +271,6 @@ class FactorAnalyzer:
                 factor_name, stock_pool_name, True
             )
 
-        # 这里只组装受支持的 O2O 计算器；其他收益口径立即报错。
         configured_calculators = data_manager.config["evaluation"]["returns_calculator"]
         # 将后复权开盘价和次日买入资格对齐到信号网格，后续各周期共用。
         open_df = self.factor_manager.get_raw_factor("open_hfq").reindex(

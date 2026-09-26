@@ -11,19 +11,18 @@ from typing import Dict, List, Optional, Any, Union, Tuple
 
 import numpy as np
 import pandas as pd
+import yaml
 from numpyencoder import NumpyEncoder
 
 from quant_lib import setup_logger
-from quant_lib.config.logger_config import log_warning, log_notice, log_error
+from quant_lib.config.logger_config import log_warning, log_notice
 from .classifier.factor_classifier import FactorClassifier
 from .factor_calculator.factor_calculator import FactorCalculator
 # 导入子模块
 from .registry.factor_registry import FactorRegistry, FactorCategory, FactorMetadata
 from .storage.single_storage import add_single_factor_test_result
 from ..config_manager.base_config import workspaces_result_dir
-from ..config_manager.factor_direction_config import FACTOR_DIRECTIONS
 from ..data_manager.data_manager import DataManager, fill_and_align_by_stock_pool, my_align
-from ..utils.data.check_data import check_data_quality_detail
 
 logger = setup_logger(__name__)
 
@@ -178,8 +177,7 @@ class FactorManager:
                  data_manager: DataManager = None,
                  results_dir: str = Path(__file__).parent.parent / "workspace/factor_results",
                  registry_path: str = "factor_registry.json",
-                 config: Dict[str, Any] = None,
-                 apply_configured_direction: bool = True):
+                 *, config: Dict[str, Any]):
 
         """
         初始化因子管理器
@@ -193,10 +191,13 @@ class FactorManager:
         self.factors_cache: Dict[str, pd.DataFrame] = {}  # 添加其他测试结果
         self.calculator = FactorCalculator(self)
         self.data_manager = data_manager
-        if not isinstance(apply_configured_direction, bool):
-            raise TypeError("apply_configured_direction 必须是 bool")
-        self.apply_configured_direction = apply_configured_direction
-        self.config = config or {}  # 保存配置，用于智能时间对齐
+        self.config = config
+        self.frozen_factors = {}
+        self.used_direction_records = {}
+        if config["stage"] != "inner":
+            self.frozen_factors = yaml.safe_load(
+                Path(config["direction_file"]).read_text(encoding="utf-8")
+            )["factors"]
         self.results_dir = Path(results_dir)
 
         # 初始化组件
@@ -248,7 +249,14 @@ class FactorManager:
         except KeyError as error:
             raise ValueError(f"合成因子缺少本次 Inner 子因子方向：factor={factor_name}") from error
 
-    # 执行 get_cache_info 对应逻辑。
+    def get_resolved_direction(self, factor_name: str) -> int:
+        """Inner 使用本轮方向；后期使用启动时加载的冻结记录。"""
+        if self.config["stage"] == "inner":
+            return self.get_inner_resolved_direction(factor_name)
+        record = self.frozen_factors[factor_name]
+        self.used_direction_records[factor_name] = record
+        return record["direction"]
+
     def get_cache_info(self) -> Dict[str, Any]:
         """
         获取缓存信息
@@ -257,22 +265,6 @@ class FactorManager:
             'cache_size': len(self.factors_cache),
             'cached_factors': list(self.factors_cache.keys())
         }
-
-    # 带着规则！ 注意用的时候 这个方向 会不会对你有影响 注意2：没有对齐股票池噢，需要对齐 可以调用  get_prepare_aligned_factor_for_analysis
-    def get_factor_by_rule(self, factor_request: Union[str, tuple]) -> pd.DataFrame:
-        """
-        【核心】获取因子的统一接口。
-        """
-        # 1. 调用最底层函数，获取纯净的原始因子
-        #    直接将 factor_request 透传下去
-        raw_factor_df = self.get_raw_factor(factor_request)
-
-        # Inner 入口关闭配置方向应用，以未翻转信号研究 IC，再由本轮结果确定方向。
-        if not self.apply_configured_direction:
-            return raw_factor_df.copy()
-        factor_name = factor_request[0] if isinstance(factor_request, tuple) else factor_request
-        direction = FACTOR_DIRECTIONS.get(factor_name, 1)
-        return (raw_factor_df * direction).copy()
 
     # 最原始的因子获取，未经过任何处理，目前被使用于 因子计算
     def get_raw_factor(self, factor_request: Union[str, tuple]) -> pd.DataFrame:
@@ -322,7 +314,7 @@ class FactorManager:
             raise ValueError(f"获取因子失败：{factor_request}")
 
         # 4. 存入缓存并返回
-        self.factors_cache[factor_request] = raw_factor_df #排查问题中 先关了
+        # self.factors_cache[factor_request] = raw_factor_df #排查问题中 先关了
         return raw_factor_df.copy(deep=True)
 
     # 执行 register_factor 对应逻辑。
@@ -695,7 +687,7 @@ class FactorManager:
         """返回 T 日收盘可得的因子；交易延迟统一由收益标签处理。"""
         if not for_test:
             raise ValueError('必须是用于测试前做的数据提取')
-        return self.get_factor_by_rule(factor_request)
+        return self.get_raw_factor(factor_request)
 
     # 执行 get_prepare_aligned_factor_for_analysis 对应逻辑。
     def get_prepare_aligned_factor_for_analysis(self, factor_request: Union[str, tuple], stock_pool_index_name,
@@ -710,12 +702,11 @@ class FactorManager:
         REQUEST = self.check_and_return_right_request(factor_request, stock_pool_index_name)
         # 1. 获取 T 日收盘可得的因子数据
         factor_data = self.get_raw_factor_for_analysis(REQUEST, for_test)
-        #
-        # self._validate_data_quality(factor_data, REQUEST, des='最原生数据') #这里检查意义不大！！因为原生计算出来的 随便一个shift252 都导致好多nan
-
         # 2. 与股票池对齐
-        ret = self.align_factor_with_pool(factor_data, factor_request, stock_pool_index_name)
-        FactorManager._validate_data_quality(ret, REQUEST, des='原生数据最终完全对齐股票池之后')
+        # 股票池只含正式研究期，已按配置过滤历史天数；预热数据不进入质量检查。
+        expected_mask = self.data_manager.stock_pools_dict[stock_pool_index_name]
+        ret = my_align(factor_data, expected_mask)
+        FactorManager._validate_data_quality(ret, expected_mask, REQUEST, des='原生数据最终完全对齐股票池之后')
         return ret
 
     # 执行 align_factor_with_pool 对应逻辑。
@@ -725,18 +716,9 @@ class FactorManager:
         【新方法】将因子数据与指定股票池对齐
         """
         # 提取因子名及目标股票池，将日期和股票列裁剪至同一网格并屏蔽池外样本。
-        factor_name_str = factor_request[0] if isinstance(factor_request, tuple) else factor_request
         pool = self.data_manager.stock_pools_dict[stock_pool_index_name]
 
-        # self._validate_data_quality(temp_date,factor_name_str,'原生数据 仅对齐未停牌的close_df ')
-        return fill_and_align_by_stock_pool(
-            factor_name=factor_name_str,
-            df=factor_data,
-            stock_pool_df=pool,
-            _existence_matrix=self.data_manager._existence_matrix
-        )
-
-
+        return  my_align(factor_data, pool)
 
     #
     #
@@ -930,27 +912,53 @@ class FactorManager:
         return REQUEST
 
     @staticmethod
-    def _validate_data_quality(factor_data: pd.DataFrame, factor_name: str, des):
+    def _validate_data_quality(factor_data: pd.DataFrame, expected_mask: pd.DataFrame,
+                               factor_name: str, des):
         """
-        【新增】数据质量检查，防止时间错配导致的虚假单调性
+        检查应有样本的数值质量，不修改数据，也不判断 PIT 或时间错配。
+
+        expected_mask 由调用方提供同网格的 T 日研究股票池，不能从因子非空值反推。
+        原始对齐后和预处理后使用同一口径，避免掩盖预处理新增的缺失。
         """
-        # logger.info(f"🔍 开始数据质量检查: {factor_name}--{des}")
+        prefix = f"因子-{factor_name}-{des}"
+        expected_data = factor_data.where(expected_mask)
 
-        # 1. 检查因子值分布
-        factor_flat = factor_data.stack().dropna()
+        # 池外值不参与检查；应有样本中的任意无穷值都是计算异常。
+        inf_mask = np.isinf(expected_data)
+        inf_count = int(inf_mask.sum().sum())
+        if inf_count:
+            rows, cols = np.where(inf_mask)
+            examples = [(factor_data.index[r], factor_data.columns[c])
+                        for r, c in zip(rows[:5], cols[:5])]
+            raise ValueError(f"{prefix} 存在 inf: 数量={inf_count}, 示例位置={examples}")
 
-        # 2. 检查是否存在异常的完美分布
-        unique_ratio = factor_flat.nunique() / len(factor_flat)
-        if unique_ratio < 0.1:  # 唯一值比例过低 很正常啊，3快-15快 1200个数据/1000*800
-            log_notice(f"因子-{factor_name}-{des} 唯一值比例过低: {unique_ratio:.3f}")
+        valid_count = expected_data.notna().sum(axis=1)
+        if valid_count.sum() == 0:
+            raise ValueError(f"{prefix} 无有效因子值")
 
-        check_report  = check_data_quality_detail(factor_data)
-        if check_report['serious_data']:
-            log_error(f"因子-{factor_name}-{des}-报告:{check_report}")
-            raise ValueError('数据严重问题')
-        logger.info(f"因子-{factor_name}-{des}- 数据质量分数: {check_report['quality_score']:.3f}")
-        # 4. 检查时间序列的连续性
-        missing_ratio = factor_data.isna().sum().sum() / (factor_data.shape[0] * factor_data.shape[1])
-        #因为长达5年，股票轮换，列不再是目标列，zz500 长时间轮换 ->最后变成800列 浅浅一算：固定缺300/800=缺37.5%都很正常！
-        if missing_ratio >= 0.5:
-            log_notice(f"因子-{factor_name}-{des}- 缺失值比例过高: {missing_ratio:.3f}")
+        expected_count = expected_mask.sum(axis=1)
+        all_missing = (expected_count > 0) & (valid_count == 0)
+        if all_missing.any():
+            raise ValueError(
+                f"{prefix} 应有样本整日缺失: 天数={int(all_missing.sum())}, "
+                f"示例日期={all_missing[all_missing].index[:5].tolist()}"
+            )
+
+        # 仅对有应有样本的日期计算比例；股票池轮换造成的池外 NaN 不计入分母。
+        active_count = expected_count[expected_count > 0]
+        missing_ratio = (active_count - valid_count.loc[active_count.index]) / active_count
+        high_missing = missing_ratio > 0.05
+        if high_missing.any():
+            log_notice(
+                f"{prefix} 应有样本缺失率超过 5%: 天数={int(high_missing.sum())}, "
+                f"最大缺失率={missing_ratio.max():.2%}, "
+                f"示例日期={high_missing[high_missing].index[:5].tolist()}"
+            )
+
+        # 离散因子和零值本身合法；仅提醒至少两只有效股票却没有截面区分度的日期。
+        constant = (valid_count >= 2) & (expected_data.nunique(axis=1) == 1)
+        if constant.any():
+            log_notice(
+                f"{prefix} 截面取值全部相同: 天数={int(constant.sum())}, "
+                f"示例日期={constant[constant].index[:5].tolist()}"
+            )

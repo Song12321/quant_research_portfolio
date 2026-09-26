@@ -223,12 +223,7 @@ class DataManager:
         df = self.data_loader.read_base_field(
             field_name, self.buffer_start_date, self.research_end_date,
         )
-        if field_name in ('close_raw', 'amount'):
-            return df
-        close = self.data_loader.read_base_field(
-            'close_raw', self.buffer_start_date, self.research_end_date,
-        )
-        return df.reindex(index=close.index, columns=close.columns)
+        return df
 
     def _prepare_stock_pool(self) -> None:
         """构建本次股票池，数据由各过滤步骤按需读取。"""
@@ -943,7 +938,7 @@ def fill_self(factor_name, df, _existence_matrix):
 
 # 对于 是先 fill 还是先where 的考量 ：还是别先ffill了：极端例子：停牌了99天的，100。 若先ffill那么 这100天都是借来的数据！  如果先where。那么直接统统nan了。在ffill也是nan，更具真实
 # 跟stock——pool对齐，这是铁的防线！，因为市场环境：1000只股票。可能就50能交易的，。我们不跟可交易股票池进行对齐，那么后面的ic、分组，用上无相关的950的股票池做计算，那有什么用，所以一定要对齐过滤！！
-def fill_and_align_by_stock_pool(factor_name=None, df=None,
+def fill_and_align_by_stock_pool(factor_name=None, factor_data=None,
                                  stock_pool_df: pd.DataFrame = None,
                                  _existence_matrix: pd.DataFrame = None):  # 这个只是用于填充pct_chg这类数据的决策判断
     # 当前执行路径仅按股票池对齐和过滤，下面的 fill_self 调用仍被注释，不会填充缺失值。
@@ -953,13 +948,13 @@ def fill_and_align_by_stock_pool(factor_name=None, df=None,
 
     # df = fill_self(factor_name, df, _existence_matrix)
     # 步骤1: 对齐到修剪后的股票池 对齐到主模板（stock_pool_df的形状）
-    return my_align(df, stock_pool_df)
+    return my_align(factor_data, stock_pool_df)
 
 
 # 执行 my_align 对应逻辑。
-def my_align(df, stock_pool_df):
+def my_align(factor_data, stock_pool_df):
     # 步骤1: 对齐到修剪后的股票池 对齐到主模板（stock_pool_df的形状）
-    aligned_df = df.reindex(index=stock_pool_df.index, columns=stock_pool_df.columns)
+    aligned_df = factor_data.reindex(index=stock_pool_df.index, columns=stock_pool_df.columns)
     aligned_df = aligned_df.sort_index()
     aligned_df = aligned_df.where(stock_pool_df)
     return aligned_df

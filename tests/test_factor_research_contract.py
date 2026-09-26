@@ -41,6 +41,7 @@ INNER_CONFIG_PATH = (
     / "_03_factor_selection"
     / "configs"
     / "research"
+    / "inner"
     / "test.yaml"
 )
 
@@ -167,7 +168,7 @@ class _CompositeFactorManager:
     def __init__(self, directions):
         self.directions = directions
 
-    def get_inner_resolved_direction(self, factor_name):
+    def get_resolved_direction(self, factor_name):
         if factor_name not in self.directions:
             raise ValueError(f"合成因子缺少本次 Inner 子因子方向：factor={factor_name}")
         return self.directions[factor_name]

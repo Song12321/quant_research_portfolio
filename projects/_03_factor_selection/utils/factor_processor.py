@@ -68,7 +68,8 @@ class FactorProcessor:
                        neutral_dfs,
                        style_category: str,
                        need_standardize: bool = True, #标准化
-                       pit_map:PointInTimeIndustryMap = None
+                       pit_map:PointInTimeIndustryMap = None,
+                       *, expected_mask: pd.DataFrame
                        ):
         """
         完整的因子预处理流水线
@@ -120,8 +121,10 @@ class FactorProcessor:
 
         # 统计处理结果
         from projects._03_factor_selection.factor_manager.factor_manager import FactorManager
-        # 预处理完成后复用因子质量检查，严重异常会阻止信号进入后续评价。
-        FactorManager._validate_data_quality(processed_target_factor_df ,target_factor_name,'预处理完之后：')
+        # 沿用原始因子的应有样本，不用处理结果的非空位置作掩码，以暴露新增缺失。
+        FactorManager._validate_data_quality(
+            processed_target_factor_df, expected_mask, target_factor_name, '预处理完之后：'
+        )
 
         return processed_target_factor_df
 

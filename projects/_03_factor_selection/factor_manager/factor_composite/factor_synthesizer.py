@@ -34,6 +34,7 @@ class FactorSynthesizer:
         # 对子因子执行去极值、中性化和标准化，使等权合成前的量纲可比。
         return self.processor.process_factor(
             factor_df=factor_shifted,
+            expected_mask=self.factor_manager.data_manager.stock_pools_dict[stock_pool_name],
             target_factor_name=factor_name,
             neutral_dfs=neutral_dfs,
             pit_map=self.factor_manager.data_manager.get_preprocessing_industry_map(),
@@ -53,11 +54,11 @@ class FactorSynthesizer:
         if not sub_factor_names:
             raise ValueError(f"复合因子 {composite_name} 必须显式配置至少一个子因子")
 
-        # 依次预处理子因子，并乘以本次 Inner 已冻结的方向，不读取历史默认方向。
+        # 子因子在此各乘一次方向；合成因子自身方向留给评价入口应用。
         processed_factors = []
         for name in sub_factor_names:
             processed = self.get_processed_sub_factor(name, stock_pool_name)
-            direction = self.factor_manager.get_inner_resolved_direction(name)
+            direction = self.factor_manager.get_resolved_direction(name)
             processed_factors.append(processed * direction)
         # 逐元素等权平均后再做一次标准化；此处未传行业映射，采用全截面路径。
         composite = self.equal_average(processed_factors)

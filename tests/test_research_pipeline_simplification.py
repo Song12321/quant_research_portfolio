@@ -118,8 +118,9 @@ def test_unknown_factor_stops_before_creating_run(monkeypatch):
 def test_missing_direction_stops_before_snapshot_write(tmp_path):
     runner = runner_module.EnhancedTestRunner()
     runner.run_dir = tmp_path
-    runner.direction_output_path = tmp_path / "directions.yaml"
-    runner.direction_output_path.write_text("factors: {}\n", encoding="utf-8")
+    runner.stage = "inner"
+    runner.direction_path = tmp_path / "directions.yaml"
+    runner.direction_path.write_text("factors: {}\n", encoding="utf-8")
 
     with pytest.raises(KeyError, match="demo"):
         runner._snapshot_direction_config([{"factor_name": "demo"}])
@@ -385,7 +386,8 @@ def test_industry_load_failure_propagates(monkeypatch):
 def test_processor_rejects_missing_required_map():
     processor = FactorProcessor({"preprocessing": {"winsorization": {"by_industry": {}}}})
     with pytest.raises(ValueError, match="行业"):
-        processor.process_factor(pd.DataFrame([[1.0]]), "demo", {}, "value")
+        processor.process_factor(pd.DataFrame([[1.0]]), "demo", {}, "value",
+                                 expected_mask=pd.DataFrame([[True]]))
 
 
 def test_processor_without_industry_preserves_full_section_result(monkeypatch):
@@ -402,7 +404,8 @@ def test_processor_without_industry_preserves_full_section_result(monkeypatch):
     )
     factor = pd.DataFrame([[1.0, 2.0, 3.0, 4.0]])
     expected = processor._standardize_robust(processor.winsorize_robust(factor))
-    actual = processor.process_factor(factor, "demo", {}, "value")
+    actual = processor.process_factor(factor, "demo", {}, "value",
+                                      expected_mask=pd.DataFrame(True, index=factor.index, columns=factor.columns))
     pd.testing.assert_frame_equal(actual, expected, check_exact=True)
 
 

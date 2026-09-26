@@ -2,7 +2,7 @@ stage: inner
 experiment_name: single_factor_inner
 output_root: '../../../workspace'
 factor_definition_dir: '../../factors/definitions'
-direction_output_file: '../../factors/inner_resolved_directions.yaml'
+direction_file: '../../factors/inner_resolved_directions.yaml'
 
 stock_pool_name: 'ALL'
 

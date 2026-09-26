@@ -89,6 +89,7 @@ def test_evaluation_masks_after_preprocessing_and_preserves_composite_inputs(mon
     entry.iloc[0, 0] = False
     processed = pd.DataFrame(1., index=pool.index, columns=pool.columns).where(pool)
     analyzer = analyzer_module.FactorAnalyzer.__new__(analyzer_module.FactorAnalyzer)
+    analyzer.config = {"stage": "inner"}
     analyzer.n_quantiles = 2
     analyzer.factor_manager = Mock()
     analyzer.factor_manager.data_manager.get_entry_pool.return_value = entry
