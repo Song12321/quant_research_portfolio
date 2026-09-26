@@ -309,7 +309,7 @@ class FactorManager:
         elif not params:
             log_warning(
                 f"{factor_name}高度重视---这是宽表 index为全交易日，所以：停牌期的行全是nan，请思考这突如其来的nan对下面公式计算是否有影响，有影响是否ffill解决 ")
-            raw_factor_df = self.data_manager.get_raw_field(factor_name)
+            raw_factor_df = self.data_manager.get_base_field_df(factor_name)
         else:
             raise ValueError(f"获取因子失败：{factor_request}")
 

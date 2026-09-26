@@ -1930,28 +1930,28 @@ class FactorCalculator:
     ##基础换算！
     def _calculate_circ_mv(self):
         # 原始流通市值由万元换算为元，与财报金额口径对应。
-        circ_mv = self.factor_manager.data_manager.get_raw_field('circ_mv').copy(deep=True)
+        circ_mv = self.factor_manager.data_manager.get_base_field_df('circ_mv').copy(deep=True)
         circ_mv = circ_mv * 10000
         return circ_mv
     def _calculate_total_mv(self):
         # 原始总市值由万元换算为元，供估值和现金流收益率作分母。
-        total_mv = self.factor_manager.data_manager.get_raw_field('total_mv').copy(deep=True)
+        total_mv = self.factor_manager.data_manager.get_base_field_df('total_mv').copy(deep=True)
         total_mv = total_mv * 10000
         return total_mv
     def _calculate_amount(self):
         # 成交额由千元换算为元，后续低关注因子使用此序列。
-        amount = self.factor_manager.data_manager.get_raw_field('amount').copy(deep=True)
+        amount = self.factor_manager.data_manager.get_base_field_df('amount').copy(deep=True)
         amount = amount * 1000
         return amount
     def _calculate_turnover_rate(self):
         # 百分数形式的换手率除以 100，转成比例形式供计算使用。
-        turnover_rate = self.factor_manager.data_manager.get_raw_field('turnover_rate').copy(deep=True)
+        turnover_rate = self.factor_manager.data_manager.get_base_field_df('turnover_rate').copy(deep=True)
         turnover_rate = turnover_rate / 100
         return turnover_rate
     ###标准内部件
 
     def _calculate_vol_raw(self):
-        return self.factor_manager.data_manager.get_raw_field('vol_raw').copy(deep=True) * 100 # 成交量 vol 的单位是 手 (1手 = 100股)，需要乘以 100 换算成 股。
+        return self.factor_manager.data_manager.get_base_field_df('vol_raw').copy(deep=True) * 100 # 成交量 vol 的单位是 手 (1手 = 100股)，需要乘以 100 换算成 股。
 
     ##
     #  目前用于 计算adj_factor 必须是ffill#

@@ -215,11 +215,11 @@ def test_raw_field_reads_every_time_and_aligns_without_batch_loader():
     manager.data_loader.read_field.side_effect = (
         lambda field, *args: (close if field == "close_raw" else turnover).copy()
     )
-    actual = manager.get_raw_field("turnover_rate")
+    actual = manager.get_base_field_df("turnover_rate")
     pd.testing.assert_frame_equal(actual, turnover.reindex(index=dates, columns=["a"]))
     turnover.iloc[0, 0] = 0.8
-    assert manager.get_raw_field("turnover_rate").iloc[1, 0] == 0.8
-    pd.testing.assert_frame_equal(manager.get_raw_field("close_raw"), close)
+    assert manager.get_base_field_df("turnover_rate").iloc[1, 0] == 0.8
+    pd.testing.assert_frame_equal(manager.get_base_field_df("close_raw"), close)
     assert [call.args for call in manager.data_loader.read_field.call_args_list] == [
         (field, "20230101", manager.research_end_date)
         for field in ["turnover_rate", "close_raw", "turnover_rate", "close_raw", "close_raw"]
@@ -234,7 +234,7 @@ def test_amount_keeps_its_own_grid_without_reading_close():
     amount = pd.DataFrame({"outside": [100.0]}, index=pd.to_datetime(["20240102"]))
     manager.data_loader = Mock()
     manager.data_loader.read_field.return_value = amount
-    pd.testing.assert_frame_equal(manager.get_raw_field("amount"), amount)
+    pd.testing.assert_frame_equal(manager.get_base_field_df("amount"), amount)
     manager.data_loader.read_field.assert_called_once_with(
         "amount", manager.buffer_start_date, manager.research_end_date,
     )
@@ -245,7 +245,7 @@ def test_raw_field_read_failure_propagates():
     manager.data_loader = Mock()
     manager.data_loader.read_field.side_effect = OSError("read failed")
     with pytest.raises(OSError, match="read failed"):
-        manager.get_raw_field("turnover_rate")
+        manager.get_base_field_df("turnover_rate")
     manager.data_loader.read_field.assert_called_once()
 
 
@@ -253,7 +253,7 @@ def test_pool_filter_order_without_signal_day_suspend_filter(monkeypatch):
     manager = make_data_manager({"neutralization": {"enable": False}})
     close = pd.DataFrame({"a": [1.0, 2.0]}, index=pd.date_range("2024-01-01", periods=2))
     manager.trading_dates = close.index[1:]
-    manager.get_raw_field = Mock(return_value=close)
+    manager.get_base_field_df = Mock(return_value=close)
     calls = []
     for name in [
         "_build_dynamic_index_universe", "_filter_by_history_days", "_filter_st_stocks",

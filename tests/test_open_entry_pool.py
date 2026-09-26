@@ -69,13 +69,13 @@ def test_entry_pool_integrates_data_source_cache_and_future_exit_contract(monkey
     manager.config['stock_pool_profiles'] = {'ALL': {'filters': {'remove_st': False}}}
     manager.stock_pools_dict = {'ALL': pool}
     fields = {'open_raw': opening, 'up_limit': upper}
-    manager.get_raw_field = Mock(side_effect=fields.__getitem__)
+    manager.get_base_field_df = Mock(side_effect=fields.__getitem__)
     monkeypatch.setattr(data_module, 'load_suspend_d_df', lambda: events([
         ('SUSPENDED', '20240103', 'S', None), ('SUSPENDED', '20240104', 'R', None),
     ]))
     entry = manager.get_entry_pool('ALL')
     assert manager.get_entry_pool('ALL') is entry
-    assert manager.get_raw_field.call_count == 2
+    assert manager.get_base_field_df.call_count == 2
     returns = calculate_forward_returns_tradable_o2o(1, opening * 2, entry)
     assert pd.isna(returns.iloc[0]['UP'])
     assert pd.isna(returns.iloc[0]['SUSPENDED'])

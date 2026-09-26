@@ -218,5 +218,5 @@ def test_prepare_and_stock_pool_use_positive_amount(market, monkeypatch):
     monkeypatch.setattr(module + '.PointInTimeIndustryMap', lambda: None)
     data._prepare_stock_pool()
     assert not hasattr(data, 'raw_dfs')
-    expected = data.get_raw_field('amount').reindex(data.trading_dates).gt(0)
+    expected = data.get_base_field_df('amount').reindex(data.trading_dates).gt(0)
     assert_frame_equal(data.stock_pools_dict['ALL'], expected)

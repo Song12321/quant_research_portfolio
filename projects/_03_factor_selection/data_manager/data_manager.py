@@ -218,7 +218,7 @@ class DataManager:
 
         return  definition['preheat_trading_days']
 
-    def get_raw_field(self, field_name: str) -> pd.DataFrame:
+    def get_base_field_df(self, field_name: str) -> pd.DataFrame:
         """直接读取研究窗口内的字段，不缓存；收盘价和成交额保留原始网格，其余对齐收盘价。"""
         df = self.data_loader.read_base_field(
             field_name, self.buffer_start_date, self.research_end_date,
@@ -250,7 +250,7 @@ class DataManager:
                 )
                 tradeable = tradeable & ~st_before_open
             prices = [
-                self.get_raw_field(field).reindex(index=pool.index, columns=pool.columns)
+                self.get_base_field_df(field).reindex(index=pool.index, columns=pool.columns)
                 for field in ('open_raw', 'up_limit')
             ]
             # 将次日可开盘买入条件移到信号日，与 T 日基础池取交集；最后一日无次日资格。
@@ -270,7 +270,7 @@ class DataManager:
         """检查数据质量"""
         print("  检查数据完整性和质量...")
 
-        for field_name, df in [("close_raw", self.get_raw_field('close_raw'))]:
+        for field_name, df in [("close_raw", self.get_base_field_df('close_raw'))]:
             # 检查数据形状
             print(f"  {field_name}: {df.shape}")
 
@@ -293,8 +293,8 @@ class DataManager:
         """
         logger.info("    正在构建股票“存在性”矩阵..")
         # 1. 获取作为输入的上市和退市日期面板
-        list_date_panel = self.get_raw_field('list_date')
-        delist_date_panel = self.get_raw_field('delist_date')
+        list_date_panel = self.get_base_field_df('list_date')
+        delist_date_panel = self.get_base_field_df('delist_date')
 
         # 2. 【核心】向量化构建布尔掩码 (Boolean Masks)
 
@@ -419,7 +419,7 @@ class DataManager:
     def _filter_by_history_days(self, stock_pool_df: pd.DataFrame, history_days: int) -> pd.DataFrame:
         filtered_pool = apply_history_days_filter(
             stock_pool_df,
-            self.get_raw_field('close_raw') if history_days else None,
+            self.get_base_field_df('close_raw') if history_days else None,
             history_days,
         )
         self.show_stock_nums_for_per_day(f'_filter_by_history_days',filtered_pool)
@@ -508,7 +508,7 @@ class DataManager:
     # ok
     def _filter_by_liquidity(self, stock_pool_df: pd.DataFrame, min_percentile: float) -> pd.DataFrame:
         """按流动性过滤 """
-        turnover_df = self.get_raw_field('turnover_rate')
+        turnover_df = self.get_base_field_df('turnover_rate')
         turnover_df = turnover_df.reindex(index=stock_pool_df.index, columns=stock_pool_df.columns)
         missing = stock_pool_df & turnover_df.isna()
         if missing.to_numpy().any():
@@ -544,7 +544,7 @@ class DataManager:
             stock_pool_df: 动态股票池
             min_percentile: 市值最低百分位阈值
         """
-        mv_df = self.get_raw_field('circ_mv')
+        mv_df = self.get_base_field_df('circ_mv')
         mv_df = mv_df.reindex(index=stock_pool_df.index, columns=stock_pool_df.columns)
         missing = stock_pool_df & mv_df.isna()
         if missing.to_numpy().any():
@@ -740,7 +740,7 @@ class DataManager:
 
     # 执行 get_stock_codes 对应逻辑。
     def get_stock_codes(self) -> pd.DataFrame:
-        return self.get_raw_field('close_raw').columns.tolist()
+        return self.get_base_field_df('close_raw').columns.tolist()
 
     # 执行 get_namechange_data 对应逻辑。
     def get_namechange_data(self) -> pd.DataFrame:
@@ -778,7 +778,7 @@ class DataManager:
 
             # 数据质量报告
             quality_report = []
-            for field_name, df in [("close_raw", self.get_raw_field('close_raw'))]:
+            for field_name, df in [("close_raw", self.get_base_field_df('close_raw'))]:
                 quality_report.append({
                     'field': field_name,
                     'shape': f"{df.shape[0]}x{df.shape[1]}",
@@ -819,7 +819,7 @@ class DataManager:
         """按原有顺序过滤，返回每日可参与研究的股票掩码。"""
         logger.info(f"  构建{pool_name}动态股票池...")
         # T 日有正成交额的股票进入信号日候选池。
-        amount = self.get_raw_field('amount')
+        amount = self.get_base_field_df('amount')
         pool = amount.reindex(self.trading_dates).gt(0)
         index_config = stock_pool_config_profile.get('index_filter', {})
         if index_config.get('enable', False):

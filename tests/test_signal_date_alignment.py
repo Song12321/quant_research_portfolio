@@ -26,7 +26,7 @@ def test_pool_uses_current_positive_amount_and_st_without_suspend_filter():
     manager = DataManager({'research_window': {'start_date': '20240105', 'end_date': '20240109'}})
     manager.trading_dates = dates
     amount = pd.DataFrame({'A': [None, 10., 10.], 'B': [10., 10., 0.]}, index=dates)
-    manager.get_raw_field = Mock(return_value=amount)
+    manager.get_base_field_df = Mock(return_value=amount)
     manager.st_matrix = pd.DataFrame({'A': [False, False, True], 'B': [False, True, False]}, index=dates)
     manager.build_st_period_from_namechange = Mock()
     manager._tradeable_matrix_by_suspend_resume = pd.DataFrame(
@@ -37,7 +37,7 @@ def test_pool_uses_current_positive_amount_and_st_without_suspend_filter():
     actual = manager.create_stock_pool(profile, 'ALL')
     expected = pd.DataFrame({'A': [False, True, False], 'B': [True, False, False]}, index=dates)
     pd.testing.assert_frame_equal(actual, expected)
-    manager.get_raw_field.assert_called_once_with('amount')
+    manager.get_base_field_df.assert_called_once_with('amount')
     manager.build_tradeable_matrix_by_suspend_resume.assert_not_called()
 
 
@@ -45,7 +45,7 @@ def test_liquidity_and_size_filters_read_signal_day_values():
     dates = pd.to_datetime(['20240105', '20240108'])
     manager = DataManager({'research_window': {'start_date': '20240105', 'end_date': '20240108'}})
     values = pd.DataFrame({'A': [1., 3.], 'B': [3., 1.]}, index=dates)
-    manager.get_raw_field = Mock(return_value=values)
+    manager.get_base_field_df = Mock(return_value=values)
     pool = pd.DataFrame(True, index=dates, columns=values.columns)
     expected = pd.DataFrame({'A': [False, True], 'B': [True, False]}, index=dates)
     pd.testing.assert_frame_equal(manager._filter_by_liquidity(pool.copy(), 0.5), expected)
@@ -67,7 +67,7 @@ def test_pool_filters_reject_missing_active_values(method, field, case):
     elif case == 'missing_date':
         values = values.iloc[:0]
     manager = DataManager({'research_window': {'start_date': '20240105', 'end_date': '20240105'}})
-    manager.get_raw_field = Mock(return_value=values)
+    manager.get_base_field_df = Mock(return_value=values)
     pool = pd.DataFrame(True, index=dates, columns=['A', 'B'])
     original = pool.copy()
     with pytest.raises(ValueError, match=field + r' 缺失：日期=2024-01-05.*股票='):
@@ -82,7 +82,7 @@ def test_pool_filters_allow_missing_outside_pool_and_empty_day(method):
                           index=dates, columns=['A', 'B', 'C'])
     pool = pd.DataFrame([[True, True, False], [False] * 3], index=dates, columns=values.columns)
     manager = DataManager({'research_window': {'start_date': '20240105', 'end_date': '20240108'}})
-    manager.get_raw_field = Mock(return_value=values)
+    manager.get_base_field_df = Mock(return_value=values)
     manager.show_stock_nums_for_per_day = Mock()
     expected = pd.DataFrame([[False, True, False], [False] * 3], index=dates, columns=values.columns)
     pd.testing.assert_frame_equal(getattr(manager, method)(pool, 0.5), expected)
